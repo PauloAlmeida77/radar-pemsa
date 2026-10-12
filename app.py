@@ -15,6 +15,7 @@ from database import (
     listar_tarefas, listar_alertas, obter_estatisticas_kpi,
     inserir_obra, atualizar_status_obra, atualizar_score_obra,
     adicionar_tarefa, concluir_tarefa, marcar_alerta_processado,
+    verificar_e_executar_sincronizacao_automatica,
     get_connection
 )
 from pemsa_catalog import CATALOGO_PEMSA, avaliar_compatibilidade_pemsa
@@ -33,6 +34,11 @@ st.set_page_config(
 # Inicializar Base de Dados e dados iniciais se necessário
 init_db()
 seed_data.popular_dados_iniciais()
+
+# Verificação e Atualização Automática Periódica (Segunda-feira ou nova semana)
+atualizou_auto, qtd_novos = verificar_e_executar_sincronizacao_automatica()
+if atualizou_auto and qtd_novos > 0:
+    st.toast(f"⚡ Radar PÉMSA: {qtd_novos} novos alertas de obras adicionados automaticamente esta semana!", icon="📡")
 
 # Estilos CSS personalizados
 st.markdown("""

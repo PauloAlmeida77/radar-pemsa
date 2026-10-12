@@ -172,8 +172,85 @@ def init_db():
     )
     """)
 
+    # 8. Tabela de Configurações e Estado do Sistema
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS configuracoes (
+        chave TEXT PRIMARY KEY,
+        valor TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
+
+def obter_config(chave, default=None):
+    """Obtém uma chave de configuração."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT valor FROM configuracoes WHERE chave = ?", (chave,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else default
+
+def definir_config(chave, valor):
+    """Define ou atualiza uma chave de configuração."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO configuracoes (chave, valor, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor, updated_at=CURRENT_TIMESTAMP
+    """, (chave, str(valor)))
+    conn.commit()
+    conn.close()
+
+def verificar_e_executar_sincronizacao_automatica():
+    """
+    Verifica se já passou a periodicidade de atualização (ex.: semanal ou diária).
+    Se for altura de atualizar, puxa novos alertas e grava na base de dados.
+    """
+    ultima_sync = obter_config("ultima_sincronizacao")
+    hoje = date.today().isoformat()
+    deve_atualizar = False
+
+    if not ultima_sync:
+        deve_atualizar = True
+    else:
+        try:
+            dt_ult = date.fromisoformat(ultima_sync)
+            # Atualiza se passaram 7 ou mais dias, ou se for segunda-feira e ainda não correu hoje
+            dias_passados = (date.today() - dt_ult).days
+            if dias_passados >= 7 or (date.today().weekday() == 0 and dt_ult != date.today()):
+                deve_atualizar = True
+        except Exception:
+            deve_atualizar = True
+
+    if deve_atualizar:
+        from scrapers import simular_rastreio_alertas
+        novos = simular_rastreio_alertas()
+        conn = get_connection()
+        cur = conn.cursor()
+        inseridos = 0
+        for n in novos:
+            cur.execute("SELECT id FROM alertas_recolha WHERE titulo = ?", (n['titulo'],))
+            if not cur.fetchone():
+                cur.execute("""
+                    INSERT INTO alertas_recolha (
+                        fonte_tipo, fonte_nome, titulo, link, data_publicacao,
+                        entidade_promotora, resumo_bruto, segmento_estimado, regiao_estimada, processado
+                    ) VALUES (
+                        :fonte_tipo, :fonte_nome, :titulo, :link, :data_publicacao,
+                        :entidade_promotora, :resumo_bruto, :segmento_estimado, :regiao_estimada, 0
+                    )
+                """, n)
+                inseridos += 1
+        conn.commit()
+        conn.close()
+        definir_config("ultima_sincronizacao", hoje)
+        return True, inseridos
+
+    return False, 0
 
 # ----------------- OPERAÇÕES DE CONSULTA (READ) -----------------
 
