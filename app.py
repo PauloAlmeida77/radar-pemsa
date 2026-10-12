@@ -23,13 +23,27 @@ from scoring import calcular_score_obra
 from scrapers import analisar_texto_obra, simular_rastreio_alertas
 import seed_data
 
-# Configuração da página Streamlit
+import base64
+icon_path = os.path.join(os.path.dirname(__file__), "pemsa_icon.png")
+icon_arg = icon_path if os.path.exists(icon_path) else "⚡"
+
+# Configuração da página Streamlit com ícone oficial da PÉMSA
 st.set_page_config(
     page_title="Radar de Obras PÉMSA 🇵🇹",
-    page_icon="⚡",
+    page_icon=icon_arg,
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Injeção de meta tags para Apple iOS / iPhone (apple-touch-icon)
+if os.path.exists(icon_path):
+    with open(icon_path, "rb") as _f:
+        _b64_icon = base64.b64encode(_f.read()).decode("utf-8")
+    st.markdown(f"""
+    <link rel="apple-touch-icon" sizes="192x192" href="data:image/png;base64,{_b64_icon}">
+    <link rel="apple-touch-icon-precomposed" sizes="192x192" href="data:image/png;base64,{_b64_icon}">
+    <link rel="icon" type="image/png" sizes="192x192" href="data:image/png;base64,{_b64_icon}">
+    """, unsafe_allow_html=True)
 
 # Inicializar Base de Dados e dados iniciais se necessário
 init_db()
