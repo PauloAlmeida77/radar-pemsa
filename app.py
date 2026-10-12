@@ -145,6 +145,57 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ----------------- CONTROLO DE ACESSO (PALAVRA-PASSE) -----------------
+def check_password():
+    """Retorna True se o utilizador estiver autenticado, ou exibe o ecrã de login seguro."""
+    if st.session_state.get("authenticated", False):
+        return True
+
+    # Ocultar sidebar e comandos durante o ecrã de login
+    st.markdown("""
+    <style>
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stSidebarNav"] { display: none; }
+        [data-testid="collapsedControl"] { display: none; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+            if os.path.exists(icon_path):
+                st.image(icon_path, width=80)
+            st.markdown("<h2 style='color: #CC2229; margin-bottom: 2px;'>⚡ Radar PÉMSA</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='color: #64748B; font-size: 0.95rem; margin-bottom: 15px;'>Acesso Restrito — Prospeção Comercial</p>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            pwd_input = st.text_input("Palavra-passe de Acesso:", type="password", placeholder="Introduza a palavra-passe...")
+            
+            senha_correta = "Pemsa2026!"
+            try:
+                if hasattr(st, "secrets") and "PASSWORD" in st.secrets:
+                    senha_correta = st.secrets["PASSWORD"]
+            except Exception:
+                pass
+
+            if st.button("🔓 Entrar no Radar", use_container_width=True, type="primary"):
+                if pwd_input == senha_correta:
+                    st.session_state["authenticated"] = True
+                    st.rerun()
+                else:
+                    st.error("❌ Palavra-passe incorreta. Tente novamente.")
+
+            st.markdown("<div style='text-align: center; margin-top: 15px;'>", unsafe_allow_html=True)
+            st.caption("🔒 Área reservada e confidencial da equipa comercial PÉMSA.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    return False
+
+if not check_password():
+    st.stop()
+
 # ----------------- BARRA LATERAL (NAVEGAÇÃO E FILTROS) -----------------
 with st.sidebar:
     logo_path = os.path.join(os.path.dirname(__file__), "pemsa_logo.svg")
@@ -180,6 +231,11 @@ with st.sidebar:
     st.write(f"• Alta Prioridade: **{kpis['prioritarias']}**")
     st.write(f"• Tarefas em Atraso: **{kpis['tarefas_atrasadas']}**")
     st.caption("Versão 1.0 MVP — Prospeção Pessoal PÉMSA")
+
+    st.markdown("---")
+    if st.button("🚪 Bloquear / Terminar Sessão", use_container_width=True):
+        st.session_state["authenticated"] = False
+        st.rerun()
 
 # =====================================================================
 # 1. PAINEL INICIAL (DASHBOARD)
