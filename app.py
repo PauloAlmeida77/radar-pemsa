@@ -171,21 +171,21 @@ def check_password():
             st.markdown("<p style='color: #64748B; font-size: 0.95rem; margin-bottom: 15px;'>Acesso Restrito — Prospeção Comercial</p>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-            pwd_input = st.text_input("Palavra-passe de Acesso:", type="password", placeholder="Introduza a palavra-passe...")
+            pwd_input = st.text_input("PIN de Acesso:", type="password", placeholder="Introduza o PIN de 4 dígitos...")
             
-            senha_correta = "Pemsa2026!"
+            senha_correta = "2003"
             try:
                 if hasattr(st, "secrets") and "PASSWORD" in st.secrets:
-                    senha_correta = st.secrets["PASSWORD"]
+                    senha_correta = str(st.secrets["PASSWORD"])
             except Exception:
                 pass
 
             if st.button("🔓 Entrar no Radar", use_container_width=True, type="primary"):
-                if pwd_input == senha_correta:
+                if str(pwd_input).strip() == senha_correta:
                     st.session_state["authenticated"] = True
                     st.rerun()
                 else:
-                    st.error("❌ Palavra-passe incorreta. Tente novamente.")
+                    st.error("❌ PIN incorreto. Tente novamente.")
 
             st.markdown("<div style='text-align: center; margin-top: 15px;'>", unsafe_allow_html=True)
             st.caption("🔒 Área reservada e confidencial da equipa comercial PÉMSA.")
