@@ -78,6 +78,11 @@ def analisar_texto_obra(texto_livre, fonte_nome="Inserção / Pesquisa", fonte_u
     Motor inteligente de IA/Regras que extrai entidades e parâmetros comerciais
     de um texto de notícia, anúncio do Portal BASE ou edital do TED.
     """
+    # Extrair título inteligente a partir da primeira linha ou frase
+    linhas_texto = [l.strip() for l in texto_livre.split("\n") if l.strip()]
+    primeira_frase = linhas_texto[0].split(".")[0].strip() if linhas_texto else "Nova Oportunidade Detetada"
+    titulo = primeira_frase[:85]
+
     segmento = identificar_segmento(texto_livre)
     regiao, distrito = identificar_regiao_distrito(texto_livre)
     fase = identificar_fase(texto_livre)
@@ -87,14 +92,14 @@ def analisar_texto_obra(texto_livre, fonte_nome="Inserção / Pesquisa", fonte_u
     empresas_sugeridas = []
 
     # Extração de padrões de promotores ou instaladores
-    promotor_match = re.search(r'(?:promovido por|promotor|dono de obra|investimento da|empresa|grupo)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&]+?)(?:,|\.|\be\b|\bque\b|\bpara\b|\bno\b)', texto_livre)
+    promotor_match = re.search(r'(?:promovido por|promotor|dono de obra|investimento da|empresa|grupo|proponente)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&]+?)(?:,|\.|\be\b|\bque\b|\bpara\b|\bno\b)', texto_livre)
     if promotor_match:
         nome_promotor = promotor_match.group(1).strip()
         if len(nome_promotor) > 3 and len(nome_promotor) < 50:
             empresas_sugeridas.append({"nome": nome_promotor, "papel": "Promotor/Dono", "tipo": "Promotor"})
             papeis_identificados.append("Promotor/Dono")
 
-    projetista_match = re.search(r'(?:projeto de|engenharia|projetista|gabinete de engenharia)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&]+?)(?:,|\.|\be\b|\bpara\b)', texto_livre)
+    projetista_match = re.search(r'(?:projeto de|engenharia|projetista|gabinete de engenharia|estudo ambiental a cargo de)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&]+?)(?:,|\.|\be\b|\bpara\b)', texto_livre)
     if projetista_match:
         nome_proj = projetista_match.group(1).strip()
         if len(nome_proj) > 3 and len(nome_proj) < 50:
@@ -112,12 +117,14 @@ def analisar_texto_obra(texto_livre, fonte_nome="Inserção / Pesquisa", fonte_u
     produtos = avaliar_compatibilidade_pemsa(segmento, texto_livre)
 
     # Timing de fornecimento estimado
-    if "projeto" in fase.lower() or "concurso" in fase.lower():
+    if any(k in texto_livre.lower() for k in ["siaia", "participa", "impacte ambiental", "aia", "estudo prévio"]):
+        timing = "Prescrição Técnica Antecipada (6 a 18 meses antes de obra - Janela Ideal PÉMSA)"
+    elif "projeto" in fase.lower() or "concurso" in fase.lower():
         timing = "Especificação técnica em aberto (sem compra fechada)"
     elif "início" in fase.lower():
         timing = "Subempreitada elétrica em consulta / Fase inicial de estrutura"
     else:
-        timing = "Obra em andamento - validar fornecedor de material elétrico com urgência"
+        timing = "Obra adjudicada / em andamento - contactar instalador elétrico vencedor"
 
     # Calcular score de oportunidade
     scoring = calcular_score_obra(
@@ -131,12 +138,16 @@ def analisar_texto_obra(texto_livre, fonte_nome="Inserção / Pesquisa", fonte_u
     )
 
     # Próxima ação recomendada pela estratégia comercial PÉMSA
-    if "Projetista MEP" in papeis_identificados:
+    if any(k in texto_livre.lower() for k in ["siaia", "participa", "impacte ambiental", "aia"]):
+        proxima_acao = "🔥 Janela de Ouro de Prescrição: Contactar o gabinete de engenharia projetista para prescrever Pemsaband / Rejiband Rapide no Caderno de Encargos antes do concurso."
+    elif "Projetista MEP" in papeis_identificados:
         proxima_acao = f"Contactar o projetista ({empresas_sugeridas[1]['nome'] if len(empresas_sugeridas)>1 else 'gabinete'}) para apresentar especificações e vantagens de {produtos[0]['familia_produto'] if produtos else 'PÉMSA'}."
     elif "Promotor/Dono" in papeis_identificados:
         proxima_acao = "Apurar junto do dono da obra qual o gabinete responsável pelo projeto elétrico (MEP) e a data prevista para consultas."
     elif "Empreiteiro Geral" in papeis_identificados:
-        proxima_acao = "Identificar o instalador elétrico subcontratado pelo empreiteiro para cotar o pacote de caminhos de cabos e tubos."
+        proxima_acao = "Identificar o instalador elétrico subcontratado pelo empreiteiro para cotar o pacote de caminhos de cabos e tubos via distribuição parceira."
+    elif "base" in fonte_nome.lower():
+        proxima_acao = "Adjudicação confirmada: contactar o instalador elétrico vencedor ou diretor de obra para canalizar fornecimento pelo distribuidor local."
     else:
         proxima_acao = "Investigar intervenientes técnicos no Portal BASE / LinkedIn / Notícias para mapear o projetista elétrico."
 
@@ -223,6 +234,17 @@ def simular_rastreio_alertas():
             "segmento_estimado": "Data Center",
             "regiao_estimada": "Sul",
             "resumo_bruto": "Investimento privado de 120 milhões de euros para início de construção em 2026. Projeto de engenharia MEP a cargo de consórcio ibérico. Elevada necessidade de caminhos de cabos em varão Rejiband para servidores e salas técnicas."
+        },
+        {
+            "fonte_tipo": "SIAIA / APA",
+            "fonte_nome": "Agência Portuguesa do Ambiente — SIAIA & PARTICIPA",
+            "titulo": "Processo AIA: Novo Campus Logístico e Centro de Dados de Alta Densidade em Castanheira do Ribatejo",
+            "link": "https://participa.pt/pt/consulta/campus-logistico-ribatejo-aia",
+            "data_publicacao": date.today().isoformat(),
+            "entidade_promotora": "Ribatejo Logistics Hub S.A. / Gestão de Ativos",
+            "segmento_estimado": "Logística / Armazéns",
+            "regiao_estimada": "Centro",
+            "resumo_bruto": "Projeto em Avaliação de Impacte Ambiental (AIA). Estudo ambiental e projeto de execução de engenharia MEP a cargo do gabinete Afaconsult. Área de implantação superior a 85.000 m2 com grande rede de caminhos de cabos e proteção contra incêndio."
         },
         {
             "fonte_tipo": "Comunicados Industriais",

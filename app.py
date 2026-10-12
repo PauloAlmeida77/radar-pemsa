@@ -808,8 +808,9 @@ elif "7. Motor de Recolha" in menu_opcao:
     st.markdown('<div class="main-header">📡 Motor de Recolha, Alertas & Exportação</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Fontes públicas (Portal BASE, TED, Notícias), Análise com IA e Exportação para Excel</div>', unsafe_allow_html=True)
 
-    tab_alertas, tab_ia, tab_freq, tab_excel = st.tabs([
-        "🔔 Alertas Recentes de Concursos e Notícias",
+    tab_alertas, tab_estrategia, tab_ia, tab_freq, tab_excel = st.tabs([
+        "🔔 Alertas Recentes das 5 Fontes",
+        "🎯 Matriz Estratégica das Fontes (SIAIA, BASE, TED)",
         "🤖 Inserir / Analisar Texto de Obra com IA",
         "⏰ Frequência de Atualização & Automação",
         "📑 Exportar para Excel / Relatório"
@@ -819,7 +820,7 @@ elif "7. Motor de Recolha" in menu_opcao:
     with tab_alertas:
         col_al_top1, col_al_top2 = st.columns([3, 1])
         with col_al_top1:
-            st.markdown("##### Feeds Rastreados: Portal BASE (Contratos Públicos), TED Europa e Imprensa")
+            st.markdown("##### Feeds Rastreados: Portal BASE, TED Europa, SIAIA / PARTICIPA e Imprensa")
         with col_al_top2:
             if st.button("🔄 Executar Pesquisa Agora", use_container_width=True):
                 # Simula nova recolha
@@ -896,7 +897,112 @@ elif "7. Motor de Recolha" in menu_opcao:
                         marcar_alerta_processado(al['id'], obra_id=None)
                         st.rerun()
 
-    # SUBTAB 2: ANALISAR COM IA
+    # SUBTAB 2: MATRIZ ESTRATÉGICA DAS FONTES (SIAIA, BASE, TED, NOTÍCIAS)
+    with tab_estrategia:
+        st.markdown("##### 🎯 Matriz Estratégica das 5 Fontes de Informação PÉMSA")
+        st.caption("Como combinar fontes oficiais, ambientais e privadas para descobrir obras antes dos concorrentes.")
+
+        # Os 3 momentos da venda PÉMSA
+        st.markdown("""
+        <div style="background:linear-gradient(90deg, #F8FAFC 0%, #EFF6FF 100%); border-left:4px solid #CC2229; padding:12px 16px; border-radius:6px; margin-bottom:16px;">
+            <b style="color:#CC2229; font-size:1.05rem;">A Regra de Ouro PÉMSA: Não depender apenas de notícias nem de obras já adjudicadas.</b><br>
+            <span style="color:#334155; font-size:0.92rem;">
+            Se esperarmos pelo <b>Portal BASE</b>, a obra já foi adjudicada e as marcas de caminhos de cabos já foram orçamentadas pelo empreiteiro.<br>
+            A grande vitória comercial da PÉMSA é antecipar a abordagem através do <b>SIAIA / PARTICIPA</b> (quando os projetos ainda estão em fase de avaliação ambiental e engenharia) e acompanhar até à contratação final.
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            with st.container(border=True):
+                st.markdown("#### 1. 🌿 SIAIA (APA) & PARTICIPA")
+                st.markdown("*(Agência Portuguesa do Ambiente · siaia.apambiente.pt / participa.pt)*")
+                st.markdown("""
+                - **Momento Temporal:** **6 a 18 meses ANTES da obra física.**
+                - **Tipo de Obra:** Centros de dados (Data Centers), parques industriais, centrais solares com subestações, logística pesada, hospitais.
+                - **Documentos Chave:** Resumo Não Técnico (RNT) e Estudos de Impacte Ambiental (AIA).
+                - **Interveniente Identificado:** Promotor + Gabinete de Engenharia Projetista (ex: Afaconsult, Quadrante, Proman, Engexpor).
+                - **Missão Comercial PÉMSA:** **Prescrição Técnica.** Contactar o projetista MEP para especificar *Rejiband Rapide* (varão) e *Pemsaband* (chapa) no Caderno de Encargos com suporte BIM e ensaios de fogo E90.
+                """)
+
+            with st.container(border=True):
+                st.markdown("#### 2. 🇪🇺 TED — Tenders Electronic Daily")
+                st.markdown("*(União Europeia · ted.europa.eu)*")
+                st.markdown("""
+                - **Momento Temporal:** **15 a 45 dias antes do encerramento de propostas.**
+                - **Tipo de Obra:** Empreitadas públicas de grande valor (> 5,5M€) em Portugal.
+                - **Documentos Chave:** Anúncio de concurso público e Caderno de Encargos de instalações elétricas (CPV `45310000`).
+                - **Interveniente Identificado:** Entidade Adjudicante + Concorrentes habilitados.
+                - **Missão Comercial PÉMSA:** **Cotação em Concurso.** Fornecer cotações rápidas e competitivas aos orçamentistas dos instaladores que vão a concurso, garantindo que concorrem com solução PÉMSA via distribuidores.
+                """)
+
+            with st.container(border=True):
+                st.markdown("#### 3. 🏛️ Portal BASE")
+                st.markdown("*(Contratos Públicos · base.gov.pt)*")
+                st.markdown("""
+                - **Momento Temporal:** **No dia da adjudicação (0 a 2 meses antes do início de trabalhos).**
+                - **Tipo de Obra:** Todas as empreitadas públicas adjudicadas pelo Estado, Câmaras e ULS.
+                - **Documentos Chave:** Contrato formal, valor adjudicado, prazo de execução e consórcios.
+                - **Interveniente Identificado:** Empreiteiro Geral Vencedor e Instalador Subcontratado.
+                - **Missão Comercial PÉMSA:** **Fecho de Fornecimento.** Contactar o Diretor de Obra e o instalador elétrico para canalizar os pedidos através dos distribuidores autorizados PÉMSA (Rexel, Sonepar, etc.).
+                """)
+
+        with col_f2:
+            with st.container(border=True):
+                st.markdown("#### 4. 📰 Imprensa Económica & Setorial")
+                st.markdown("*(Jornal de Negócios, Jornal Económico, ECO, Construir)*")
+                st.markdown("""
+                - **Momento Temporal:** **Fase de Anúncio / Estudo Prévio de Investimento Privado.**
+                - **Tipo de Obra:** **Obras 100% Privadas** (novas fábricas, expansões industriais, plataformas logísticas e hotéis que NÃO aparecem no BASE nem no TED).
+                - **Documentos Chave:** Notícias de investimento, conferências e comunicados de promotores.
+                - **Interveniente Identificado:** Promotor / Grupo Internacional / Autarquia de acolhimento.
+                - **Missão Comercial PÉMSA:** **Deteção Precoce.** Descobrir qual o gabinete de arquitetura/engenharia responsável pelo licenciamento e iniciar o contacto de pré-prescrição.
+                """)
+
+            with st.container(border=True):
+                st.markdown("#### 5. 🏢 Páginas Oficiais das Empresas & Decisores")
+                st.markdown("*(Promotores, Gabinetes de Engenharia, Instaladores Elétricos)*")
+                st.markdown("""
+                - **Momento Temporal:** **Contínuo / Enriquecimento de Dados.**
+                - **Tipo de Obra:** Acompanhamento do portfólio de engenharia e obras em carteira.
+                - **Documentos Chave:** Portfólios de referências, organigramas e comunicados de imprensa.
+                - **Interveniente Identificado:** Diretores de Instalações, Coordenadores MEP, Responsáveis de Compras.
+                - **Missão Comercial PÉMSA:** **Qualificação de Contactos.** Validar nomes e cargos técnicos (cruzando com LinkedIn) para transformar o radar numa ação comercial prática (telefonema / reunião / visita).
+                """)
+
+            with st.container(border=True):
+                st.markdown("#### 🔍 Gerador de Pesquisas Booleanas Automáticas")
+                st.caption("Gere filtros prontos para Google Notícias, RSS ou alertas automáticos:")
+                
+                seg_sel = st.selectbox("Selecione o Segmento:", ["Data Center", "Industrial / Fábricas", "Logística / Armazéns", "Hospital / Saúde", "Energia / Renováveis"])
+                reg_sel = st.selectbox("Selecione a Região:", ["Portugal Global", "Norte (Porto, Braga, Famalicão)", "Centro (Aveiro, Coimbra, Leiria)", "Sul (Lisboa, Sines, Setúbal)"])
+
+                if seg_sel == "Data Center":
+                    termos_seg = '("data center" OR "centro de dados" OR "campus de dados")'
+                elif seg_sel == "Industrial / Fábricas":
+                    termos_seg = '("nova fábrica" OR "ampliação industrial" OR "unidade de produção" OR "nova nave industrial")'
+                elif seg_sel == "Logística / Armazéns":
+                    termos_seg = '("parque logístico" OR "plataforma logística" OR "armazém" OR "centro de distribuição")'
+                elif seg_sel == "Hospital / Saúde":
+                    termos_seg = '("novo hospital" OR "centro hospitalar" OR "unidade de saúde" OR "ampliação hospitalar")'
+                else:
+                    termos_seg = '("central solar" OR "parque solar" OR "subestação elétrica" OR "armazenamento de baterias")'
+
+                if "Norte" in reg_sel:
+                    termos_reg = 'AND (Porto OR Braga OR Famalicão OR Guimarães OR "Santo Tirso" OR "Vila Real")'
+                elif "Centro" in reg_sel:
+                    termos_reg = 'AND (Aveiro OR Coimbra OR Leiria OR Viseu OR "Castanheira do Ribatejo" OR Azambuja)'
+                elif "Sul" in reg_sel:
+                    termos_reg = 'AND (Lisboa OR Sines OR Palmela OR Setúbal OR Oeiras OR Loures OR Évora)'
+                else:
+                    termos_reg = 'AND (Portugal OR Norte OR Centro OR Alentejo OR Algarve)'
+
+                query_final = f'{termos_seg} {termos_reg}'
+                st.code(query_final, language="text")
+                st.caption("Copie esta linha para configurar alertas no Google Notícias, Feedly ou alimentar o motor do Radar.")
+
+    # SUBTAB 3: ANALISAR COM IA
     with tab_ia:
         st.markdown("##### 🤖 Importação Rápida Assistida por IA")
         st.caption("Cole aqui o texto de uma notícia, edital do Portal BASE ou anúncio de obra. O motor extrai entidades, empresas, produtos PÉMSA compatíveis e calcula a pontuação comercial.")
