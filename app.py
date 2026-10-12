@@ -3,12 +3,21 @@ app.py - Radar de Obras PÉMSA (Aplicação de Inteligência Comercial e Prospe�
 Interface Interativa em Streamlit
 """
 
+import sys
+import os
+
+# Garantir que o diretório atual do projeto está no sys.path (essencial para o Linux / Streamlit Cloud)
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
 import streamlit as st
 import pandas as pd
 import json
-import os
 import io
+import base64
 from datetime import date, datetime, timedelta
+from PIL import Image
 
 from database import (
     init_db, listar_obras, obter_obra_por_id, listar_empresas,
@@ -23,9 +32,14 @@ from scoring import calcular_score_obra
 from scrapers import analisar_texto_obra, simular_rastreio_alertas
 import seed_data
 
-import base64
-icon_path = os.path.join(os.path.dirname(__file__), "pemsa_icon.png")
-icon_arg = icon_path if os.path.exists(icon_path) else "⚡"
+icon_path = os.path.join(CURRENT_DIR, "pemsa_icon.png")
+if os.path.exists(icon_path):
+    try:
+        icon_arg = Image.open(icon_path)
+    except Exception:
+        icon_arg = "⚡"
+else:
+    icon_arg = "⚡"
 
 # Configuração da página Streamlit com ícone oficial da PÉMSA
 st.set_page_config(

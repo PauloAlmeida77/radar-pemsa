@@ -4,10 +4,15 @@ database.py - Módulo de gestão da base de dados SQLite do Radar de Obras PÉMS
 
 import sqlite3
 import os
+import sys
 import json
 from datetime import datetime, date
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "radar_pemsa.db")
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+DB_PATH = os.path.join(CURRENT_DIR, "radar_pemsa.db")
 
 def get_connection():
     """Obtém uma conexão à base de dados SQLite."""
