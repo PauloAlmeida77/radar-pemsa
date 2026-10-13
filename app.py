@@ -142,13 +142,37 @@ st.markdown("""
         border-color: #CBD5E1;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
     }
-    /* Ocultar elementos padrão do Streamlit para manter visual corporativo limpo */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    [data-testid="stToolbar"] {visibility: hidden;}
-    [data-testid="stDecoration"] {visibility: hidden;}
-    [data-testid="stStatusWidget"] {visibility: hidden;}
+    /* Ocultar elementos desnecessários do Streamlit (3 pontinhos, rodapé) sem ocultar o cabeçalho nem o botão do menu */
+    #MainMenu {visibility: hidden !important; display: none !important;}
+    footer {visibility: hidden !important; display: none !important;}
+    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+    [data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
+    [data-testid="stStatusWidget"] {visibility: hidden !important; display: none !important;}
+
+    /* Assegurar que o botão de abrir o menu lateral (collapsedControl) no telemóvel e desktop está SEMPRE VISÍVEL */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        visibility: visible !important;
+        display: block !important;
+    }
+    [data-testid="collapsedControl"] {
+        visibility: visible !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background-color: #FFFFFF !important;
+        border: 2px solid #CC2229 !important;
+        border-radius: 8px !important;
+        color: #CC2229 !important;
+        box-shadow: 0 2px 6px rgba(204, 34, 41, 0.25) !important;
+        margin-top: 6px !important;
+        margin-left: 10px !important;
+        z-index: 999999 !important;
+    }
+    [data-testid="collapsedControl"] svg {
+        fill: #CC2229 !important;
+        stroke: #CC2229 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
