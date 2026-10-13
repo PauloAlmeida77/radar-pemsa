@@ -142,42 +142,6 @@ st.markdown("""
         border-color: #CBD5E1;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
     }
-    /* Ocultar elementos desnecessários do Streamlit (3 pontinhos, rodapé) sem ocultar o cabeçalho nem o botão do menu */
-    #MainMenu {visibility: hidden !important; display: none !important;}
-    footer {visibility: hidden !important; display: none !important;}
-    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-    [data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
-    [data-testid="stStatusWidget"] {visibility: hidden !important; display: none !important;}
-
-    /* Assegurar que o botão de abrir o menu lateral (collapsedControl) no telemóvel e desktop está SEMPRE VISÍVEL */
-    header[data-testid="stHeader"] {
-        background: transparent !important;
-        visibility: visible !important;
-        display: block !important;
-        height: 2.8rem !important;
-    }
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapsedControl"],
-    button[kind="header"] {
-        visibility: visible !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background-color: #FFFFFF !important;
-        border: 2px solid #CC2229 !important;
-        border-radius: 8px !important;
-        color: #CC2229 !important;
-        box-shadow: 0 2px 6px rgba(204, 34, 41, 0.25) !important;
-        position: fixed !important;
-        top: 8px !important;
-        left: 8px !important;
-        z-index: 9999999 !important;
-    }
-    [data-testid="collapsedControl"] svg,
-    [data-testid="stSidebarCollapsedControl"] svg {
-        fill: #CC2229 !important;
-        stroke: #CC2229 !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -190,8 +154,8 @@ def check_password():
     # Ocultar sidebar durante o ecrã de login
     st.markdown("""
     <style>
-        [data-testid="stSidebar"] { display: none; }
-        [data-testid="stSidebarNav"] { display: none; }
+        [data-testid="stSidebar"] { display: none !important; }
+        [data-testid="stSidebarNav"] { display: none !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -231,30 +195,19 @@ def check_password():
 if not check_password():
     st.stop()
 
-# ----------------- OPÇÕES DE MENU E ESTADO GLOBAL -----------------
-OPCOES_MENU = [
-    "📊 1. Painel Inicial (Dashboard)",
-    "🔎 2. Pesquisa de Obras (Radar)",
-    "🗺️ 3. Mapa de Portugal",
-    "📋 4. Ficha da Obra & Dossiê",
-    "🏢 5. Empresas & Decisores",
-    "📅 6. Plano Comercial & Tarefas",
-    "📡 7. Motor de Recolha & Alertas"
-]
-LISTA_REGIOES = ["Todas", "Norte", "Centro", "Sul", "Madeira", "Açores"]
+# Garantir que a barra lateral e o respetivo botão de expansão estão sempre ativos e visíveis
+st.markdown("""
+<style>
+    [data-testid="stSidebar"] { display: block !important; }
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-if "menu_opcao" not in st.session_state:
-    st.session_state["menu_opcao"] = OPCOES_MENU[0]
-if "filtro_regiao_global" not in st.session_state:
-    st.session_state["filtro_regiao_global"] = "Todas"
-
-def _sync_sb_menu():
-    st.session_state["menu_opcao"] = st.session_state["sb_menu_opcao"]
-
-def _sync_sb_regiao():
-    st.session_state["filtro_regiao_global"] = st.session_state["sb_regiao_select"]
-
-# ----------------- BARRA LATERAL (NAVEGAÇÃO E FILTROS NO PC) -----------------
+# ----------------- BARRA LATERAL (NAVEGAÇÃO E FILTROS) -----------------
 with st.sidebar:
     logo_path = os.path.join(os.path.dirname(__file__), "pemsa_logo.svg")
     if os.path.exists(logo_path):
@@ -264,25 +217,23 @@ with st.sidebar:
     st.markdown("<h3 style='margin-top: -10px; color: #CC2229;'>Radar de Obras</h3>", unsafe_allow_html=True)
     st.caption("Inteligência Comercial de Obras — Portugal")
 
-    idx_sb_menu = OPCOES_MENU.index(st.session_state["menu_opcao"]) if st.session_state["menu_opcao"] in OPCOES_MENU else 0
-    st.radio(
+    menu_opcao = st.radio(
         "Navegação do Sistema:",
-        OPCOES_MENU,
-        index=idx_sb_menu,
-        key="sb_menu_opcao",
-        on_change=_sync_sb_menu
+        [
+            "📊 1. Painel Inicial (Dashboard)",
+            "🔎 2. Pesquisa de Obras (Radar)",
+            "🗺️ 3. Mapa de Portugal",
+            "📋 4. Ficha da Obra & Dossiê",
+            "🏢 5. Empresas & Decisores",
+            "📅 6. Plano Comercial & Tarefas",
+            "📡 7. Motor de Recolha & Alertas"
+        ],
+        index=0
     )
 
     st.markdown("---")
     st.markdown("##### 🎯 **Filtro Global Rápido**")
-    idx_sb_reg = LISTA_REGIOES.index(st.session_state["filtro_regiao_global"]) if st.session_state["filtro_regiao_global"] in LISTA_REGIOES else 0
-    st.selectbox(
-        "Região:",
-        LISTA_REGIOES,
-        index=idx_sb_reg,
-        key="sb_regiao_select",
-        on_change=_sync_sb_regiao
-    )
+    filtro_regiao_global = st.selectbox("Região:", ["Todas", "Norte", "Centro", "Sul", "Madeira", "Açores"], index=0)
 
     st.markdown("---")
     kpis = obter_estatisticas_kpi()
@@ -296,45 +247,6 @@ with st.sidebar:
     if st.button("🚪 Bloquear / Terminar Sessão", use_container_width=True):
         st.session_state["authenticated"] = False
         st.rerun()
-
-# ----------------- NAVEGAÇÃO SUPERIOR DIRETA (IDEAL PARA TELEMÓVEL) -----------------
-def _sync_top_menu():
-    st.session_state["menu_opcao"] = st.session_state["top_menu_opcao"]
-
-def _sync_top_regiao():
-    st.session_state["filtro_regiao_global"] = st.session_state["top_regiao_select"]
-
-idx_top_menu = OPCOES_MENU.index(st.session_state["menu_opcao"]) if st.session_state["menu_opcao"] in OPCOES_MENU else 0
-idx_top_reg = LISTA_REGIOES.index(st.session_state["filtro_regiao_global"]) if st.session_state["filtro_regiao_global"] in LISTA_REGIOES else 0
-
-with st.container():
-    st.markdown("""
-    <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-left:4px solid #CC2229; padding:6px 12px; border-radius:8px; margin-bottom:8px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-        <b style="color:#CC2229; font-size:0.92rem;">🧭 NAVEGAÇÃO RÁPIDA (TELEMÓVEL & PC)</b>
-    </div>
-    """, unsafe_allow_html=True)
-    c_m_nav1, c_m_nav2 = st.columns([3, 1])
-    with c_m_nav1:
-        st.selectbox(
-            "Mudar de Área:",
-            OPCOES_MENU,
-            index=idx_top_menu,
-            key="top_menu_opcao",
-            on_change=_sync_top_menu,
-            label_visibility="collapsed"
-        )
-    with c_m_nav2:
-        st.selectbox(
-            "Região:",
-            LISTA_REGIOES,
-            index=idx_top_reg,
-            key="top_regiao_select",
-            on_change=_sync_top_regiao,
-            label_visibility="collapsed"
-        )
-
-menu_opcao = st.session_state["menu_opcao"]
-filtro_regiao_global = st.session_state["filtro_regiao_global"]
 
 # =====================================================================
 # 1. PAINEL INICIAL (DASHBOARD)
