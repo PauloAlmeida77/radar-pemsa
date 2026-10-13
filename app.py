@@ -142,6 +142,13 @@ st.markdown("""
         border-color: #CBD5E1;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
     }
+    /* Ocultar elementos padrão do Streamlit para manter visual corporativo limpo */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    [data-testid="stToolbar"] {visibility: hidden;}
+    [data-testid="stDecoration"] {visibility: hidden;}
+    [data-testid="stStatusWidget"] {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
