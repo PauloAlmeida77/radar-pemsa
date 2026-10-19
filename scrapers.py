@@ -166,28 +166,44 @@ def analisar_texto_obra(texto_livre, fonte_nome="Inserção / Pesquisa", fonte_u
     else:
         proxima_acao = "Investigar intervenientes técnicos no Portal BASE / LinkedIn / Notícias para mapear o projetista elétrico."
 
-    # Extração de pessoa responsável e cargo
-    pessoa_match = re.search(r'(?:Eng\.(?:ª)?|Dr\.(?:ª)?|Arqt\.(?:o|a)?|responsável|diretor(?:a)?|coordenador(?:a)?)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú]+(?:\s+[A-ZÀ-Ú][a-zA-ZÀ-ú]+){1,3})', texto_livre)
-    if pessoa_match:
-        responsavel_nome = pessoa_match.group(0).strip()
-        if "projet" in texto_livre.lower():
-            responsavel_cargo = "Projetista / Coordenador MEP"
-            responsavel_empresa = empresas_sugeridas[1]['nome'] if len(empresas_sugeridas) > 1 else (empresas_sugeridas[0]['nome'] if empresas_sugeridas else "Gabinete de Engenharia")
-        else:
-            responsavel_cargo = "Diretor de Obra / Instalações"
-            responsavel_empresa = empresas_sugeridas[0]['nome'] if empresas_sugeridas else "Empreiteiro / Promotor"
-    else:
-        if empresas_sugeridas:
-            emp = empresas_sugeridas[0]
-            responsavel_nome = "Direção Técnica / Gabinete de Compras"
-            responsavel_cargo = f"Responsável ({emp['papel']})"
-            responsavel_empresa = emp['nome']
-        else:
-            responsavel_nome = "A Mapear (Decisor Técnico)"
-            responsavel_cargo = "Projetista Elétrico MEP"
-            responsavel_empresa = "Gabinete por confirmar"
+    # Determinação de Prioridade de Contacto, Projetista, Construtor e Instalador
+    projetistas_txt = [e["nome"] for e in empresas_sugeridas if e["papel"] == "Projetista MEP"]
+    construtores_txt = [e["nome"] for e in empresas_sugeridas if e["papel"] == "Empreiteiro Geral"]
+    instaladores_txt = [e["nome"] for e in empresas_sugeridas if e["papel"] == "Instalador Elétrico"]
+    promotores_txt = [e["nome"] for e in empresas_sugeridas if e["papel"] == "Promotor/Dono"]
 
-    responsavel_contacto = "Pesquisa no Portal BASE / LinkedIn"
+    partes_intervenientes = []
+    if projetistas_txt:
+        partes_intervenientes.append(f"Projetista MEP: {', '.join(projetistas_txt)}")
+    else:
+        partes_intervenientes.append("Projetista MEP: A confirmar junto do Promotor/Concurso")
+    if construtores_txt:
+        partes_intervenientes.append(f"Construtor: {', '.join(construtores_txt)}")
+    else:
+        partes_intervenientes.append("Construtor: Em concurso / A designar")
+    if instaladores_txt:
+        partes_intervenientes.append(f"Instalador: {', '.join(instaladores_txt)}")
+    if promotores_txt:
+        partes_intervenientes.append(f"Promotor: {', '.join(promotores_txt)}")
+
+    responsavel_empresa = " | ".join(partes_intervenientes)
+
+    if "Projeto" in fase or "Planeamento" in fase:
+        responsavel_nome = "1.ª Prioridade: Ligar 1.º ao Projetista MEP (Prescrição em Caderno de Encargos)"
+        responsavel_cargo = "2.ª Prioridade: Promotor / Fiscalização Técnica"
+    elif "Concurso" in fase:
+        responsavel_nome = "1.ª Prioridade: Ligar 1.º ao Construtor (Dep. Orçamentação) e Projetista MEP"
+        responsavel_cargo = "2.ª Prioridade: Instaladores Elétricos Concorrentes"
+    else:
+        responsavel_nome = "1.ª Prioridade: Ligar 1.º ao Instalador Elétrico e Construtor Geral (Compras MEP)"
+        responsavel_cargo = "2.ª Prioridade: Distribuidor Elétrico Local"
+
+    # Se o texto mencionar explicitamente uma pessoa real, adiciona-a na nota de prioridade
+    pessoa_match = re.search(r'(?:Eng\.(?:ª)?|Dr\.(?:ª)?|Arqt\.(?:o|a)?)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú]+(?:\s+[A-ZÀ-Ú][a-zA-ZÀ-ú]+){1,3})', texto_livre)
+    if pessoa_match:
+        responsavel_nome = f"{responsavel_nome} (Contacto citado na fonte: {pessoa_match.group(0).strip()})"
+
+    responsavel_contacto = "Consultar Central Geral da Empresa na Ficha ou Pesquisar Equipa MEP no LinkedIn / Portal BASE"
 
     return {
         "titulo": titulo,
@@ -309,12 +325,12 @@ def obter_obras_atualizacao_semanal():
                 "fonte_url": "https://eco.sapo.pt/",
                 "resumo": "Novo centro de dados de alta densidade ('compacto') avaliado em 220 milhões de euros em Coruche, equipado com clusters de chips Nvidia para IA. Elevadíssima exigência de caminhos de cabos em varão Rejiband Rapide Black C8 para salas técnicas de servidores e caminhos de cabos Pemsaband para alimentação crítica e redundância energética.",
                 "timing_fornecimento": "Janela Ideal de Prescrição Técnica (Projeto de Execução MEP em curso)",
-                "proxima_acao": "Contactar de imediato a direção de engenharia MEP (Eng. Tiago Mendonça — Quadrante) e o instalador Sotécnica para especificar Rejiband Rapide Black C8 e suportação rápida.",
+                "proxima_acao": "1.º Ligar ao Projetista MEP (Quadrante) para especificar Rejiband Rapide Black C8; 2.º Contactar Direção de Orçamentação MEP da Sotécnica (Instalador).",
                 "notas_comerciais": "Detetado na atualização automática semanal de segunda-feira.",
-                "responsavel_nome": "Eng. Tiago Mendonça",
-                "responsavel_cargo": "Diretor de Projetos MEP / Data Centers",
-                "responsavel_empresa": "Quadrante Engenharia & MEP",
-                "responsavel_contacto": "+351 919 123 456 | tiago.mendonca@quadrante-group.com"
+                "responsavel_nome": "1.ª Prioridade: Ligar 1.º ao Projetista MEP (Dep. Data Centers / Eletrotécnica)",
+                "responsavel_cargo": "2.ª Prioridade: Instalador Elétrico (Direção de Orçamentação)",
+                "responsavel_empresa": "Projetista MEP: Quadrante Engenharia | Instalador Elétrico: Sotécnica (VINCI)",
+                "responsavel_contacto": "Quadrante: +351 217 998 210 | geral@quadrante-engenharia.pt • Sotécnica: +351 219 829 200"
             },
             "empresas": [
                 {"nome": "Quadrante Engenharia & MEP", "papel": "Projetista MEP"},
@@ -326,7 +342,7 @@ def obter_obras_atualizacao_semanal():
                 {"familia_produto": "Sistemas de suporte e fixação", "nivel_potencial": "Potencial Forte", "especificacao_detalhe": "Suportes suspensos rápidos para tetos técnicos de alta carga."}
             ],
             "tarefa": {
-                "titulo": "Apresentar dossier Data Center IA Coruche (Rejiband Black C8) à Quadrante",
+                "titulo": "Apresentar dossier Data Center IA Coruche (Rejiband Black C8) ao Projetista MEP (Quadrante)",
                 "tipo": "Reunião Técnica",
                 "prioridade": "Urgente"
             }
@@ -359,12 +375,12 @@ def obter_obras_atualizacao_semanal():
                 "fonte_url": "https://jornaleconomico.sapo.pt/",
                 "resumo": "Grupo francês Somfy reforça capacidade industrial em Portugal com construção de nova unidade fabril em Felgueiras dedicada a motores tubulares e sistemas de automação. Forte necessidade de caminhos de cabos em chapa Pemsaband PQX para linhas de montagem, tubos metálicos flexíveis e bucins IP68 para maquinaria.",
                 "timing_fornecimento": "Especificação técnica de projeto elétrico industrial em aberto",
-                "proxima_acao": "Contactar Eng.ª Sofia Henriques (Afaconsult) e Rui Peixoto (CME) para prescrever Pemsaband e tubos industriais nas linhas de produção.",
+                "proxima_acao": "1.º Ligar ao Projetista MEP (Afaconsult Porto) para prescrever Pemsaband PQX e tubos; 2.º Contactar Construtor (DST Group) e Instalador (CME).",
                 "notas_comerciais": "Detetado na atualização automática semanal de segunda-feira.",
-                "responsavel_nome": "Eng.ª Sofia Henriques",
-                "responsavel_cargo": "Projetista Eletrotécnica Sénior",
-                "responsavel_empresa": "Afaconsult Engenharia e Projetos",
-                "responsavel_contacto": "+351 934 567 890 | sofia.henriques@afaconsult.com"
+                "responsavel_nome": "1.ª Prioridade: Ligar 1.º ao Projetista MEP (Escritório Porto) e Construtor",
+                "responsavel_cargo": "2.ª Prioridade: Instalador Elétrico Industrial (CME)",
+                "responsavel_empresa": "Projetista: Afaconsult | Construtor: DST Group | Instalador: CME",
+                "responsavel_contacto": "Afaconsult Porto: +351 225 320 060 • DST Group: +351 253 307 200 • CME: +351 219 259 100"
             },
             "empresas": [
                 {"nome": "Afaconsult Engenharia e Projetos", "papel": "Projetista MEP"},
@@ -377,7 +393,7 @@ def obter_obras_atualizacao_semanal():
                 {"familia_produto": "Bucins e acessórios", "nivel_potencial": "Potencial Forte", "especificacao_detalhe": "Bucins metálicos EMC e IP68 para quadros de comando industrial."}
             ],
             "tarefa": {
-                "titulo": "Contactar Afaconsult e CME sobre projeto elétrico da nova fábrica Somfy Felgueiras",
+                "titulo": "Contactar Projetista (Afaconsult) e Construtor (DST) sobre projeto elétrico da fábrica Somfy Felgueiras",
                 "tipo": "Telefonema",
                 "prioridade": "Alta"
             }
@@ -410,12 +426,12 @@ def obter_obras_atualizacao_semanal():
                 "fonte_url": "https://diarioimobiliario.pt/",
                 "resumo": "Investimento da Logicor na construção e modernização de plataforma logística de 34.000 m² na Grande Lisboa (Póvoa de Santa Iria), preparada para operadores de distribuição moderna, frio positivo e cais de carregamento elétrico de frotas.",
                 "timing_fornecimento": "Fase de consulta a empreiteiros gerais e instaladores elétricos",
-                "proxima_acao": "Enviar cotação de caminhos de cabos em varão e chapa para o departamento de produção MEP da Casais (Eng. Marco Silva).",
+                "proxima_acao": "1.º Ligar à Direção de Produção MEP do Construtor (Casais) e ao Instalador Elétrico (Sotécnica) para cotar caminhos de cabos em varão e chapa.",
                 "notas_comerciais": "Detetado na atualização automática semanal de segunda-feira.",
-                "responsavel_nome": "Eng. Marco Silva",
-                "responsavel_cargo": "Diretor de Produção e MEP",
-                "responsavel_empresa": "Casais Engenharia e Construção",
-                "responsavel_contacto": "+351 917 889 900 | marco.silva@casais.pt"
+                "responsavel_nome": "1.ª Prioridade: Ligar 1.º ao Construtor (Compras MEP) e Instalador Elétrico",
+                "responsavel_cargo": "2.ª Prioridade: Promotor Logístico (Logicor Portugal)",
+                "responsavel_empresa": "Construtor Geral: Casais Engenharia | Instalador Elétrico: Sotécnica (VINCI)",
+                "responsavel_contacto": "Casais: +351 253 305 400 | geral@casais.pt • Sotécnica: +351 219 829 200 | geral@sotecnica.pt"
             },
             "empresas": [
                 {"nome": "Casais Engenharia e Construção", "papel": "Empreiteiro Geral"},
@@ -426,7 +442,7 @@ def obter_obras_atualizacao_semanal():
                 {"familia_produto": "Caminhos de cabos em varão (Rejiband / Rejiband Rapide)", "nivel_potencial": "Potencial Forte", "especificacao_detalhe": "Iluminação técnica LED em naves de grande altura e redes de picking."}
             ],
             "tarefa": {
-                "titulo": "Validar pacote elétrico da Plataforma Logicor Póvoa de Santa Iria com Eng. Marco Silva",
+                "titulo": "Validar pacote elétrico da Plataforma Logicor Póvoa de Santa Iria com a Direção de Produção MEP da Casais",
                 "tipo": "Email Técnico",
                 "prioridade": "Alta"
             }
@@ -459,12 +475,12 @@ def obter_obras_atualizacao_semanal():
                 "fonte_url": "https://participa.pt/",
                 "resumo": "Grande projeto fotovoltaico Sophia na Beira Baixa em fase de Avaliação de Impacte Ambiental (SIAIA / PARTICIPA) com reformulação de layout e subestações coletoras de muito alta tensão. Janela antecipada ideal para especificar caminhos de cabos com tratamento anticorrosão de alta durabilidade ( Galvanizado a Quente HDG / Black C8 ).",
                 "timing_fornecimento": "Prescrição Técnica Antecipada (Fase SIAIA / Projeto de Execução)",
-                "proxima_acao": "Apresentar soluções PÉMSA de alta proteção anticorrosiva C4/C5 e suportes solares à Projenel (Eng. António Barbosa).",
+                "proxima_acao": "1.º Ligar ao Projetista de Engenharia Elétrica (Projenel) e à divisão de Energia do Construtor (Mota-Engil) para especificar acabamento HDG / Black C8.",
                 "notas_comerciais": "Detetado na atualização automática semanal de segunda-feira via monitorização SIAIA/PARTICIPA.",
-                "responsavel_nome": "Eng. António Barbosa",
-                "responsavel_cargo": "Diretor de Engenharia Elétrica",
-                "responsavel_empresa": "Projenel Projetos e Consultoria Elétrica",
-                "responsavel_contacto": "+351 253 200 400 | geral@projenel.pt"
+                "responsavel_nome": "1.ª Prioridade: Ligar 1.º ao Projetista de Subestações / Engenharia Elétrica",
+                "responsavel_cargo": "2.ª Prioridade: Construtor EPC Solar (Divisão Energia)",
+                "responsavel_empresa": "Projetista Elétrico: Projenel | Construtor EPC: Mota-Engil Engenharia",
+                "responsavel_contacto": "Projenel: +351 253 200 400 | geral@projenel.pt • Mota-Engil: +351 225 190 300"
             },
             "empresas": [
                 {"nome": "Projenel Projetos e Consultoria Elétrica", "papel": "Projetista MEP"},
@@ -475,7 +491,7 @@ def obter_obras_atualizacao_semanal():
                 {"familia_produto": "Tubos rígidos e flexíveis", "nivel_potencial": "Potencial Forte", "especificacao_detalhe": "Tubos com resistência UV para proteção de cablagem DC exterior."}
             ],
             "tarefa": {
-                "titulo": "Contactar Projenel para especificação HDG na Central Solar Sophia (Fundão)",
+                "titulo": "Contactar Projetista (Projenel) para especificação HDG na Central Solar Sophia (Fundão)",
                 "tipo": "Telefonema",
                 "prioridade": "Normal"
             }

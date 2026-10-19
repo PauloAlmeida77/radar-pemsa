@@ -19,13 +19,14 @@ import base64
 from datetime import date, datetime, timedelta
 from PIL import Image
 
+import urllib.parse
 from database import (
     init_db, listar_obras, obter_obra_por_id, listar_empresas,
     listar_tarefas, listar_alertas, obter_estatisticas_kpi,
-    inserir_obra, atualizar_status_obra, atualizar_score_obra,
-    adicionar_tarefa, concluir_tarefa, marcar_alerta_processado,
-    verificar_e_executar_sincronizacao_automatica, obter_config,
-    get_connection
+    inserir_obra, atualizar_status_obra, atualizar_intervenientes_obra,
+    atualizar_score_obra, adicionar_tarefa, concluir_tarefa,
+    marcar_alerta_processado, verificar_e_executar_sincronizacao_automatica,
+    obter_config, get_connection
 )
 from pemsa_catalog import CATALOGO_PEMSA, avaliar_compatibilidade_pemsa
 from scoring import calcular_score_obra
@@ -322,17 +323,19 @@ if "1. Painel Inicial" in menu_opcao:
                 st.markdown(f"### 📍 **{top_obra['titulo']}**{badge_novo}", unsafe_allow_html=True)
                 st.markdown(f"**Localização:** {top_obra['concelho']}, {top_obra['distrito']} ({top_obra['regiao']}) | **Segmento:** `{top_obra['segmento']}` | **Fase:** `{top_obra['fase']}`")
                 
-                # DESTAQUE CLARO DO DECISOR RESPONSÁVEL
-                resp_nome = top_obra.get('responsavel_nome') or 'Por identificar'
-                resp_cargo = top_obra.get('responsavel_cargo') or 'Cargo N/D'
-                resp_emp = top_obra.get('responsavel_empresa') or 'Empresa N/D'
-                resp_ct = top_obra.get('responsavel_contacto') or 'Contacto a apurar'
+                # DESTAQUE CLARO DA PRIORIDADE DE CONTACTO, PROJETISTA E CONSTRUTOR
+                resp_nome = top_obra.get('responsavel_nome') or '1.ª Prioridade: Ligar ao Projetista MEP / Construtor'
+                resp_cargo = top_obra.get('responsavel_cargo') or '2.ª Prioridade: Instalador Elétrico'
+                resp_emp = top_obra.get('responsavel_empresa') or 'Projetista / Construtor a confirmar'
+                resp_ct = top_obra.get('responsavel_contacto') or 'Consultar Central Geral'
+                lnk_query = urllib.parse.quote(f"{resp_emp.split('|')[0].replace('Projetista:', '').replace('Construtor:', '').strip()} Engenharia Eletrotecnica Compras")
                 st.markdown(f"""
                 <div style="background:#FFF5F5; border-left:4px solid #CC2229; padding:10px 14px; border-radius:6px; margin:10px 0;">
-                    <span style="font-weight:700; color:#991B1B;">👤 Decisor Responsável Identificado:</span>
-                    <span style="font-weight:700; color:#1E293B;"> {resp_nome}</span> — 
-                    <span style="color:#475569;"><i>{resp_cargo}</i> (<b>{resp_emp}</b>)</span>
-                    <br><span style="font-size:0.85rem; color:#64748B;">📞 Contacto direto: <b>{resp_ct}</b></span>
+                    <span style="font-weight:700; color:#991B1B;">🎯 A Quem Ligar Primeiro:</span>
+                    <span style="font-weight:700; color:#1E293B;"> {resp_nome}</span>
+                    <span style="color:#475569; font-size:0.9rem;"> ({resp_cargo})</span>
+                    <br><span style="font-weight:700; color:#1E293B;">🏗️ Projetista / Construtor / Instalador:</span> <span style="color:#0F172A; font-weight:600;">{resp_emp}</span>
+                    <br><span style="font-size:0.86rem; color:#475569;">☎️ <b>Contactos Oficiais Reais:</b> {resp_ct} &nbsp;|&nbsp; <a href="https://www.linkedin.com/search/results/people/?keywords={lnk_query}" target="_blank" style="color:#CC2229; font-weight:600; text-decoration:none;">🔗 Procurar Engenheiros/Compras no LinkedIn ↗</a></span>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -368,7 +371,7 @@ if "1. Painel Inicial" in menu_opcao:
                     c_s1, c_s2 = st.columns([4, 1])
                     with c_s1:
                         st.markdown(f"**📍 {ob_sem['titulo']}** — `{ob_sem['concelho']} ({ob_sem['regiao']})` | *{ob_sem['segmento']}*")
-                        st.caption(f"👤 Decisor: **{ob_sem.get('responsavel_nome')}** ({ob_sem.get('responsavel_empresa')}) | 📞 {ob_sem.get('responsavel_contacto')}")
+                        st.caption(f"🎯 **{ob_sem.get('responsavel_nome')}** | 🏗️ **{ob_sem.get('responsavel_empresa')}** | ☎️ {ob_sem.get('responsavel_contacto')}")
                     with c_s2:
                         st.markdown(f"<div style='text-align:right;'><span class='badge-alta'>Score: {ob_sem['score']}/100</span></div>", unsafe_allow_html=True)
 
@@ -469,16 +472,17 @@ elif "2. Pesquisa de Obras" in menu_opcao:
 
                     st.markdown(f"<p style='color:#475569; margin-top:8px;'>{obra['resumo']}</p>", unsafe_allow_html=True)
 
-                    # Destaque do Decisor Responsável
-                    r_nome = obra.get('responsavel_nome') or 'Por identificar'
-                    r_cargo = obra.get('responsavel_cargo') or 'Cargo N/D'
-                    r_emp = obra.get('responsavel_empresa') or 'Empresa N/D'
-                    r_ct = obra.get('responsavel_contacto') or 'Contacto a apurar'
+                    # Destaque da Prioridade, Projetista e Construtor
+                    r_nome = obra.get('responsavel_nome') or '1.ª Prioridade: Ligar ao Projetista / Construtor'
+                    r_cargo = obra.get('responsavel_cargo') or '2.ª Prioridade: Instalador Elétrico'
+                    r_emp = obra.get('responsavel_empresa') or 'Projetista / Construtor a confirmar'
+                    r_ct = obra.get('responsavel_contacto') or 'Contacto institucional na ficha'
                     st.markdown(f"""
-                    <div style="background:#F8FAFC; border-left:3px solid #CC2229; padding:7px 12px; margin:8px 0; border-radius:4px;">
-                        <span style="font-weight:700; color:#1E293B;">👤 Decisor Responsável:</span>
-                        <span> <b>{r_nome}</b> — <i>{r_cargo}</i> (<b>{r_emp}</b>)</span>
-                        <br><span style="font-size:0.85rem; color:#64748B;">📞 Contacto direto: <b>{r_ct}</b></span>
+                    <div style="background:#F8FAFC; border-left:3px solid #CC2229; padding:8px 12px; margin:8px 0; border-radius:4px;">
+                        <span style="font-weight:700; color:#991B1B;">🎯 Prioridade:</span>
+                        <span> <b>{r_nome}</b> <span style="color:#475569; font-size:0.88rem;">({r_cargo})</span></span>
+                        <br><span style="font-weight:700; color:#1E293B;">🏗️ Projetista / Construtor / Instalador:</span> <b>{r_emp}</b>
+                        <br><span style="font-size:0.85rem; color:#64748B;">☎️ Contactos Oficiais: <b>{r_ct}</b></span>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -590,23 +594,43 @@ elif "4. Ficha da Obra" in menu_opcao:
             st.metric("Pontuação PÉMSA", f"{obra['score']}/100", f"Prioridade {obra['prioridade']}")
             st.progress(obra['score'] / 100)
 
-        # DESTAQUE DO DECISOR RESPONSÁVEL PRINCIPAL
-        r_nome = obra.get('responsavel_nome') or 'Por identificar'
-        r_cargo = obra.get('responsavel_cargo') or 'Cargo N/D'
-        r_emp = obra.get('responsavel_empresa') or 'Empresa N/D'
-        r_ct = obra.get('responsavel_contacto') or 'Contacto a apurar'
+        # DESTAQUE DA PRIORIDADE DE CONTACTO, PROJETISTA E CONSTRUTOR
+        r_nome = obra.get('responsavel_nome') or '1.ª Prioridade: Ligar ao Projetista MEP / Construtor'
+        r_cargo = obra.get('responsavel_cargo') or '2.ª Prioridade: Instalador Elétrico'
+        r_emp = obra.get('responsavel_empresa') or 'Projetista / Construtor a confirmar'
+        r_ct = obra.get('responsavel_contacto') or 'Consultar Central Geral'
+        lnk_q_ficha = urllib.parse.quote(f"{r_emp.split('|')[0].replace('Projetista:', '').replace('Projetista MEP:', '').replace('Construtor:', '').strip()} Engenharia Eletrotecnica")
         st.markdown(f"""
         <div style="background:#FFF5F5; border:1px solid #FECACA; border-left:5px solid #CC2229; padding:12px 16px; border-radius:8px; margin: 12px 0;">
-            <div style="font-size:0.8rem; font-weight:700; color:#991B1B; text-transform:uppercase; letter-spacing:0.5px;">👤 Pessoa Responsável / Decisor Chave</div>
-            <div style="font-size:1.2rem; font-weight:700; color:#1E293B; margin-top:2px;">{r_nome}</div>
-            <div style="color:#475569; font-size:0.95rem; margin-top:2px;">
-                <b>Cargo:</b> {r_cargo} &nbsp;|&nbsp; <b>Empresa:</b> {r_emp}
+            <div style="font-size:0.8rem; font-weight:700; color:#991B1B; text-transform:uppercase; letter-spacing:0.5px;">🎯 Prioridade de Abordagem (A Quem Ligar Primeiro)</div>
+            <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin-top:2px;">{r_nome}</div>
+            <div style="color:#475569; font-size:0.95rem; margin-top:4px;">
+                <b>2.ª Linha de Abordagem:</b> {r_cargo}
             </div>
-            <div style="color:#64748B; font-size:0.9rem; margin-top:4px;">
-                📞 <b>Contacto Direto:</b> {r_ct}
+            <div style="color:#0F172A; font-size:0.98rem; margin-top:6px; background:#FFFFFF; padding:6px 10px; border-radius:5px; border:1px solid #F1F5F9;">
+                🏗️ <b>Projetista / Construtor / Instalador:</b> {r_emp}
+            </div>
+            <div style="color:#475569; font-size:0.9rem; margin-top:6px;">
+                ☎️ <b>Contactos Oficiais Verificados:</b> {r_ct} &nbsp;|&nbsp;
+                <a href="https://www.linkedin.com/search/results/people/?keywords={lnk_q_ficha}" target="_blank" style="color:#CC2229; font-weight:700; text-decoration:none;">🔗 Pesquisar Engenheiros / Compras desta Empresa no LinkedIn ↗</a>
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # Opção rápida para o utilizador editar/guardar o nome real do engenheiro/comprador assim que o descobrir ao telefone
+        with st.expander("✏️ Atualizar Projetista, Construtor ou Guardar Nome Real do Engenheiro / Comprador Descoberto"):
+            with st.form(f"form_edit_interv_{obra['id']}"):
+                ei_col1, ei_col2 = st.columns(2)
+                with ei_col1:
+                    novo_resp_nome = st.text_input("Prioridade / Nome Real do Engenheiro ou Comprador:", value=r_nome)
+                    novo_resp_emp = st.text_input("Projetista MEP / Construtor / Instalador:", value=r_emp)
+                with ei_col2:
+                    novo_resp_cargo = st.text_input("2.ª Prioridade / Cargo / Departamento:", value=r_cargo)
+                    novo_resp_ct = st.text_input("Telefone Direto / Central / Email:", value=r_ct)
+                if st.form_submit_button("💾 Guardar Dados de Contacto e Intervenientes"):
+                    atualizar_intervenientes_obra(obra['id'], novo_resp_nome, novo_resp_cargo, novo_resp_emp, novo_resp_ct)
+                    st.success("Prioridade, Projetista/Construtor e Contacto atualizados com sucesso!")
+                    st.rerun()
 
         # Atualização do Estado Comercial
         with st.container(border=True):
@@ -1049,7 +1073,7 @@ elif "7. Motor de Recolha" in menu_opcao:
         texto_input = st.text_area(
             "Cole o texto da notícia ou anúncio de concurso:",
             height=160,
-            value="Construção do novo Parque de Logística e Armazenagem no Carregado com 30.000 m2. Promovido pelo Grupo Lusitânia Logística, o projeto de instalações elétricas MEP foi adjudicado ao gabinete Quadrante Engenharia sob a coordenação do Eng. Tiago Mendonça. Empreitada em fase de projeto de execução com concurso a abrir em breve para empreiteiro e instaladores."
+            value="Construção do novo Parque de Logística e Armazenagem no Carregado com 30.000 m2. Promovido pelo Grupo Lusitânia Logística, o projeto de instalações elétricas MEP foi adjudicado ao gabinete Quadrante Engenharia e a empreitada geral à Casais Engenharia. Obra em fase de projeto de execução com consulta aberta para subempreitada elétrica."
         )
 
         if st.button("🔍 Analisar e Extrair Inteligência Comercial", use_container_width=True):
@@ -1066,10 +1090,11 @@ elif "7. Motor de Recolha" in menu_opcao:
                     st.markdown(f"### 📍 {res_ia['titulo']}")
                     st.write(f"**Segmento:** `{res_ia['segmento']}` | **Região:** `{res_ia['regiao']}` ({res_ia['distrito']}) | **Fase:** `{res_ia['fase']}`")
                     
-                    # Mostrar responsável detetado
+                    # Mostrar prioridade e intervenientes detetados
                     st.markdown(f"""
-                    <div style="background:#F8FAFC; border-left:3px solid #CC2229; padding:6px 12px; margin:6px 0; border-radius:4px;">
-                        <b>👤 Decisor Detetado:</b> {res_ia.get('responsavel_nome')} — <i>{res_ia.get('responsavel_cargo')}</i> ({res_ia.get('responsavel_empresa')})
+                    <div style="background:#F8FAFC; border-left:3px solid #CC2229; padding:8px 12px; margin:6px 0; border-radius:4px;">
+                        <b>🎯 Prioridade:</b> {res_ia.get('responsavel_nome')} — <i>{res_ia.get('responsavel_cargo')}</i><br>
+                        <b>🏗️ Projetista / Construtor / Instalador:</b> {res_ia.get('responsavel_empresa')}
                     </div>
                     """, unsafe_allow_html=True)
                     

@@ -587,6 +587,18 @@ def atualizar_status_obra(obra_id, novo_status, novas_notas=None):
     conn.commit()
     conn.close()
 
+def atualizar_intervenientes_obra(obra_id, responsavel_nome, responsavel_cargo, responsavel_empresa, responsavel_contacto):
+    """Atualiza a prioridade de contacto, projetista, construtor e contactos diretos da obra."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE obras
+        SET responsavel_nome = ?, responsavel_cargo = ?, responsavel_empresa = ?, responsavel_contacto = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """, (responsavel_nome, responsavel_cargo, responsavel_empresa, responsavel_contacto, obra_id))
+    conn.commit()
+    conn.close()
+
 def atualizar_score_obra(obra_id, novo_score, prioridade, breakdown_json):
     """Atualiza pontuação recalculada da obra."""
     conn = get_connection()
