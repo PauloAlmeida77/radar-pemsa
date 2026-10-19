@@ -20,10 +20,20 @@ from datetime import date, datetime, timedelta
 from PIL import Image
 
 import urllib.parse
+import importlib
+import database
+import scrapers
+import seed_data
+
+# Forçar recarregamento dos módulos no Streamlit Cloud quando há novos commits
+importlib.reload(database)
+importlib.reload(scrapers)
+importlib.reload(seed_data)
+
 from database import (
     init_db, listar_obras, obter_obra_por_id, listar_empresas,
     listar_tarefas, listar_alertas, obter_estatisticas_kpi,
-    inserir_obra, atualizar_status_obra, atualizar_intervenientes_obra,
+    inserir_obra, atualizar_status_obra,
     atualizar_score_obra, adicionar_tarefa, concluir_tarefa,
     marcar_alerta_processado, verificar_e_executar_sincronizacao_automatica,
     obter_config, get_connection
@@ -31,7 +41,18 @@ from database import (
 from pemsa_catalog import CATALOGO_PEMSA, avaliar_compatibilidade_pemsa
 from scoring import calcular_score_obra
 from scrapers import analisar_texto_obra, simular_rastreio_alertas
-import seed_data
+
+def atualizar_intervenientes_obra(obra_id, responsavel_nome, responsavel_cargo, responsavel_empresa, responsavel_contacto):
+    """Atualiza a prioridade de contacto, projetista, construtor e contactos diretos da obra."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE obras
+        SET responsavel_nome = ?, responsavel_cargo = ?, responsavel_empresa = ?, responsavel_contacto = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """, (responsavel_nome, responsavel_cargo, responsavel_empresa, responsavel_contacto, obra_id))
+    conn.commit()
+    conn.close()
 
 icon_path = os.path.join(CURRENT_DIR, "pemsa_icon.png")
 if os.path.exists(icon_path):
