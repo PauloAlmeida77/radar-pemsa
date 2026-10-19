@@ -193,6 +193,13 @@ def obter_config(chave, default=None):
     """Obtém uma chave de configuração."""
     conn = get_connection()
     cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS configuracoes (
+            chave TEXT PRIMARY KEY,
+            valor TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     cur.execute("SELECT valor FROM configuracoes WHERE chave = ?", (chave,))
     row = cur.fetchone()
     conn.close()
@@ -203,6 +210,13 @@ def definir_config(chave, valor):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS configuracoes (
+            chave TEXT PRIMARY KEY,
+            valor TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
         INSERT INTO configuracoes (chave, valor, updated_at)
         VALUES (?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor, updated_at=CURRENT_TIMESTAMP
@@ -210,34 +224,104 @@ def definir_config(chave, valor):
     conn.commit()
     conn.close()
 
-def verificar_e_executar_sincronizacao_automatica():
+def verificar_e_executar_sincronizacao_automatica(forcar=False):
     """
-    Verifica se já passou a periodicidade de atualização (ex.: semanal ou diária).
-    Se for altura de atualizar, puxa novos alertas e grava na base de dados.
+    Verifica se já passou a periodicidade de atualização semanal (todas as segundas-feiras / nova semana ISO)
+    ou se faltam as obras da atualização semanal atual.
+    Insere novas obras qualificadas no Radar (tabela obras), cria tarefas e recolhe alertas em tempo real via RSS.
     """
-    ultima_sync = obter_config("ultima_sincronizacao")
-    hoje = date.today().isoformat()
-    deve_atualizar = False
+    from datetime import timedelta
+    from scrapers import simular_rastreio_alertas, obter_obras_atualizacao_semanal
 
-    if not ultima_sync:
+    ultima_sync = obter_config("ultima_sincronizacao")
+    ultima_semana = obter_config("ultima_semana_sync")
+    hoje = date.today().isoformat()
+    iso_cal = date.today().isocalendar()
+    semana_atual = f"{iso_cal[0]}-W{iso_cal[1]:02d}"
+
+    deve_atualizar = forcar
+
+    if not ultima_sync or ultima_semana != semana_atual:
         deve_atualizar = True
     else:
         try:
             dt_ult = date.fromisoformat(ultima_sync)
-            # Atualiza se passaram 7 ou mais dias, ou se for segunda-feira e ainda não correu hoje
             dias_passados = (date.today() - dt_ult).days
             if dias_passados >= 7 or (date.today().weekday() == 0 and dt_ult != date.today()):
                 deve_atualizar = True
         except Exception:
             deve_atualizar = True
 
+    # Garantir que as obras do lote semanal atual estão presentes na tabela obras
+    obras_semanais = obter_obras_atualizacao_semanal()
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT codigo_ref FROM obras WHERE codigo_ref = ?", ("PEMSA-2026-CORUCHE",))
+    if not cur.fetchone():
+        deve_atualizar = True
+    conn.close()
+
     if deve_atualizar:
-        from scrapers import simular_rastreio_alertas
-        novos = simular_rastreio_alertas()
         conn = get_connection()
         cur = conn.cursor()
-        inseridos = 0
-        for n in novos:
+        obras_inseridas = 0
+        alertas_inseridos = 0
+
+        # Mapear empresas existentes por nome
+        cur.execute("SELECT id, nome FROM empresas")
+        mapa_empresas = {r["nome"]: r["id"] for r in cur.fetchall()}
+
+        # 1. Inserir novas obras qualificadas da semana diretamente no Radar (tabela obras)
+        for item in obras_semanais:
+            dados_o = item["obra"]
+            cur.execute("SELECT id FROM obras WHERE codigo_ref = ? OR titulo = ?", (dados_o["codigo_ref"], dados_o["titulo"]))
+            if not cur.fetchone():
+                cur.execute("""
+                    INSERT INTO obras (
+                        titulo, codigo_ref, segmento, regiao, distrito, concelho, morada_localizacao,
+                        lat, lon, fase, status_comercial, score, score_breakdown, prioridade,
+                        valor_estimado, prazo_previsto, data_detecao, fonte_tipo, fonte_nome,
+                        fonte_url, resumo, timing_fornecimento, proxima_acao, notas_comerciais,
+                        responsavel_nome, responsavel_cargo, responsavel_empresa, responsavel_contacto
+                    ) VALUES (
+                        :titulo, :codigo_ref, :segmento, :regiao, :distrito, :concelho, :morada_localizacao,
+                        :lat, :lon, :fase, :status_comercial, :score, :score_breakdown, :prioridade,
+                        :valor_estimado, :prazo_previsto, :data_detecao, :fonte_tipo, :fonte_nome,
+                        :fonte_url, :resumo, :timing_fornecimento, :proxima_acao, :notas_comerciais,
+                        :responsavel_nome, :responsavel_cargo, :responsavel_empresa, :responsavel_contacto
+                    )
+                """, dados_o)
+                nova_obra_id = cur.lastrowid
+                obras_inseridas += 1
+
+                # Associar empresas
+                for emp_rel in item.get("empresas", []):
+                    emp_id = mapa_empresas.get(emp_rel["nome"])
+                    if emp_id:
+                        cur.execute("""
+                            INSERT OR IGNORE INTO obra_empresas (obra_id, empresa_id, papel, confirmado, notas)
+                            VALUES (?, ?, ?, 1, 'Associado na sincronização semanal')
+                        """, (nova_obra_id, emp_id, emp_rel["papel"]))
+
+                # Associar produtos PÉMSA
+                for prod in item.get("produtos", []):
+                    cur.execute("""
+                        INSERT INTO obra_produtos (obra_id, familia_produto, nivel_potencial, especificacao_detalhe)
+                        VALUES (?, ?, ?, ?)
+                    """, (nova_obra_id, prod["familia_produto"], prod["nivel_potencial"], prod["especificacao_detalhe"]))
+
+                # Criar tarefa comercial para a semana
+                tar = item.get("tarefa")
+                if tar:
+                    prazo_tar = (date.today() + timedelta(days=3)).isoformat()
+                    cur.execute("""
+                        INSERT INTO tarefas (obra_id, titulo, tipo, data_limite, prioridade, estado)
+                        VALUES (?, ?, ?, ?, ?, 'Pendente')
+                    """, (nova_obra_id, tar["titulo"], tar["tipo"], prazo_tar, tar["prioridade"]))
+
+        # 2. Recolher alertas e notícias reais via RSS para a caixa de entrada do Motor de Recolha
+        novos_alertas = simular_rastreio_alertas()
+        for n in novos_alertas:
             cur.execute("SELECT id FROM alertas_recolha WHERE titulo = ?", (n['titulo'],))
             if not cur.fetchone():
                 cur.execute("""
@@ -249,11 +333,14 @@ def verificar_e_executar_sincronizacao_automatica():
                         :entidade_promotora, :resumo_bruto, :segmento_estimado, :regiao_estimada, 0
                     )
                 """, n)
-                inseridos += 1
+                alertas_inseridos += 1
+
         conn.commit()
         conn.close()
         definir_config("ultima_sincronizacao", hoje)
-        return True, inseridos
+        definir_config("ultima_semana_sync", semana_atual)
+        definir_config("obras_adicionadas_semana", str(obras_inseridas if obras_inseridas > 0 else len(obras_semanais)))
+        return True, (obras_inseridas + alertas_inseridos)
 
     return False, 0
 

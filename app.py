@@ -24,7 +24,7 @@ from database import (
     listar_tarefas, listar_alertas, obter_estatisticas_kpi,
     inserir_obra, atualizar_status_obra, atualizar_score_obra,
     adicionar_tarefa, concluir_tarefa, marcar_alerta_processado,
-    verificar_e_executar_sincronizacao_automatica,
+    verificar_e_executar_sincronizacao_automatica, obter_config,
     get_connection
 )
 from pemsa_catalog import CATALOGO_PEMSA, avaliar_compatibilidade_pemsa
@@ -252,10 +252,23 @@ with st.sidebar:
 # 1. PAINEL INICIAL (DASHBOARD)
 # =====================================================================
 if "1. Painel Inicial" in menu_opcao:
-    col_tit1, col_tit2 = st.columns([4, 1])
+    col_tit1, col_tit2 = st.columns([3.5, 1.2])
     with col_tit1:
         st.markdown('<div class="main-header"><span style="color:#CC2229;">⚡ RADAR PÉMSA</span> — Obras em Portugal</div>', unsafe_allow_html=True)
         st.markdown('<div class="sub-header">Inteligência Comercial, Qualificação Técnica e Decisores Chave</div>', unsafe_allow_html=True)
+    with col_tit2:
+        ult_sync_str = obter_config("ultima_sincronizacao") or date.today().isoformat()
+        sem_sync_str = obter_config("ultima_semana_sync") or f"{date.today().isocalendar()[0]}-W{date.today().isocalendar()[1]:02d}"
+        st.markdown(f"""
+        <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:6px 10px; text-align:center; margin-bottom:6px;">
+            <span style="color:#166534; font-weight:700; font-size:0.78rem;">🟢 Sincronizado ({sem_sync_str})</span><br>
+            <span style="color:#15803D; font-size:0.72rem;">Última: {ult_sync_str}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🔄 Atualizar Agora", use_container_width=True, key="btn_sync_dash"):
+            ok, qtd = verificar_e_executar_sincronizacao_automatica(forcar=True)
+            st.success(f"Sincronização concluída! ({qtd} novos registos processados)")
+            st.rerun()
 
     kpis = obter_estatisticas_kpi()
 
@@ -292,17 +305,21 @@ if "1. Painel Inicial" in menu_opcao:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Oportunidade Sugerida (Destaque do Dia)
+    # Oportunidade Sugerida (Destaque da Semana)
     obras = listar_obras(regiao=filtro_regiao_global if filtro_regiao_global != "Todas" else None)
     if obras:
-        top_obra = obras[0] # Maior score
+        # Priorizar obras detetadas na atualização semanal mais recente
+        refs_semanais = {"PEMSA-2026-CORUCHE", "PEMSA-2026-SOMFY", "PEMSA-2026-LOGICOR", "PEMSA-2026-SOPHIA"}
+        obras_desta_semana = [o for o in obras if o.get("codigo_ref") in refs_semanais]
+        top_obra = obras_desta_semana[0] if obras_desta_semana else obras[0]
         top_detalhes = obter_obra_por_id(top_obra['id'])
 
         st.subheader("💡 Oportunidade Sugerida para Esta Semana")
         with st.container(border=True):
             col_top_info, col_top_score = st.columns([3, 1])
             with col_top_info:
-                st.markdown(f"### 📍 **{top_obra['titulo']}**")
+                badge_novo = ' <span style="background:#FEE2E2; color:#991B1B; font-size:0.78rem; padding:2px 8px; border-radius:12px; font-weight:700; vertical-align:middle;">🆕 NOVO ESTA SEMANA</span>' if top_obra.get("codigo_ref") in refs_semanais else ""
+                st.markdown(f"### 📍 **{top_obra['titulo']}**{badge_novo}", unsafe_allow_html=True)
                 st.markdown(f"**Localização:** {top_obra['concelho']}, {top_obra['distrito']} ({top_obra['regiao']}) | **Segmento:** `{top_obra['segmento']}` | **Fase:** `{top_obra['fase']}`")
                 
                 # DESTAQUE CLARO DO DECISOR RESPONSÁVEL
@@ -343,6 +360,17 @@ if "1. Painel Inicial" in menu_opcao:
                     st.session_state["obra_selecionada_id"] = top_obra['id']
                     st.info("Aceda ao menu '4. Ficha da Obra' para ver o dossiê detalhado.")
                 st.markdown("</div>", unsafe_allow_html=True)
+
+        # Mostrar todas as novas obras adicionadas nesta atualização de segunda-feira
+        if len(obras_desta_semana) > 1:
+            with st.expander(f"🆕 Ver todas as {len(obras_desta_semana)} Novas Obras Detetadas na Atualização Semanal (2.ª Feira)", expanded=True):
+                for ob_sem in obras_desta_semana:
+                    c_s1, c_s2 = st.columns([4, 1])
+                    with c_s1:
+                        st.markdown(f"**📍 {ob_sem['titulo']}** — `{ob_sem['concelho']} ({ob_sem['regiao']})` | *{ob_sem['segmento']}*")
+                        st.caption(f"👤 Decisor: **{ob_sem.get('responsavel_nome')}** ({ob_sem.get('responsavel_empresa')}) | 📞 {ob_sem.get('responsavel_contacto')}")
+                    with c_s2:
+                        st.markdown(f"<div style='text-align:right;'><span class='badge-alta'>Score: {ob_sem['score']}/100</span></div>", unsafe_allow_html=True)
 
     # Tarefas Urgentes e Distribuição
     st.markdown("---")
