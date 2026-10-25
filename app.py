@@ -1,12 +1,11 @@
 """
 app.py - Radar de Obras PÉMSA (Aplicação de Inteligência Comercial e Prospeção)
-Interface Interativa em Streamlit
+Interface Interativa em Streamlit com Sincronização Real, Auditoria de Integridade e Gestão de Conflitos
 """
 
 import sys
 import os
 
-# Garantir que o diretório atual do projeto está no sys.path (essencial para o Linux / Streamlit Cloud)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
@@ -16,43 +15,46 @@ import pandas as pd
 import json
 import io
 import base64
+import urllib.parse
+import importlib
 from datetime import date, datetime, timedelta
 from PIL import Image
 
-import urllib.parse
-import importlib
 import database
 import scrapers
 import seed_data
 
-# Forçar recarregamento dos módulos no Streamlit Cloud quando há novos commits
 importlib.reload(database)
 importlib.reload(scrapers)
 importlib.reload(seed_data)
 
 from database import (
-    init_db, listar_obras, obter_obra_por_id, listar_empresas,
-    listar_tarefas, listar_alertas, obter_estatisticas_kpi,
-    inserir_obra, atualizar_status_obra,
-    atualizar_score_obra, adicionar_tarefa, concluir_tarefa,
-    marcar_alerta_processado, verificar_e_executar_sincronizacao_automatica,
-    obter_config, get_connection
+    init_db,
+    listar_obras,
+    obter_obra_por_id,
+    listar_empresas,
+    listar_tarefas,
+    listar_alertas,
+    obter_estatisticas_kpi,
+    inserir_obra,
+    atualizar_status_obra,
+    atualizar_intervenientes_obra,
+    atualizar_score_obra,
+    adicionar_tarefa,
+    concluir_tarefa,
+    marcar_alerta_processado,
+    executar_sincronizacao_radar,
+    obter_ultimo_relatorio_sincronizacao,
+    listar_registos_suspeitos,
+    limpar_atribuicoes_nao_verificadas_obra,
+    resolver_conflito_obra,
+    exportar_backup_json,
+    obter_config,
+    get_connection,
+    ESTADOS_VERIFICACAO_VALIDOS,
 )
-from pemsa_catalog import CATALOGO_PEMSA, avaliar_compatibilidade_pemsa
-from scoring import calcular_score_obra
-from scrapers import analisar_texto_obra, simular_rastreio_alertas
-
-def atualizar_intervenientes_obra(obra_id, responsavel_nome, responsavel_cargo, responsavel_empresa, responsavel_contacto):
-    """Atualiza a prioridade de contacto, projetista, construtor e contactos diretos da obra."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE obras
-        SET responsavel_nome = ?, responsavel_cargo = ?, responsavel_empresa = ?, responsavel_contacto = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    """, (responsavel_nome, responsavel_cargo, responsavel_empresa, responsavel_contacto, obra_id))
-    conn.commit()
-    conn.close()
+from pemsa_catalog import CATALOGO_PEMSA
+from scrapers import analisar_texto_obra
 
 icon_path = os.path.join(CURRENT_DIR, "pemsa_icon.png")
 if os.path.exists(icon_path):
@@ -63,7 +65,6 @@ if os.path.exists(icon_path):
 else:
     icon_arg = "⚡"
 
-# Configuração da página Streamlit com ícone oficial da PÉMSA
 st.set_page_config(
     page_title="Radar de Obras PÉMSA 🇵🇹",
     page_icon=icon_arg,
@@ -71,7 +72,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Injeção de meta tags para Apple iOS / iPhone (apple-touch-icon)
 if os.path.exists(icon_path):
     with open(icon_path, "rb") as _f:
         _b64_icon = base64.b64encode(_f.read()).decode("utf-8")
@@ -81,14 +81,8 @@ if os.path.exists(icon_path):
     <link rel="icon" type="image/png" sizes="192x192" href="data:image/png;base64,{_b64_icon}">
     """, unsafe_allow_html=True)
 
-# Inicializar Base de Dados e dados iniciais se necessário
+# Inicializar Base de Dados e Auditoria Não-Destrutiva (sem injetar dados de demonstração no arranque)
 init_db()
-seed_data.popular_dados_iniciais()
-
-# Verificação e Atualização Automática Periódica (Segunda-feira ou nova semana)
-atualizou_auto, qtd_novos = verificar_e_executar_sincronizacao_automatica()
-if atualizou_auto and qtd_novos > 0:
-    st.toast(f"⚡ Radar PÉMSA: {qtd_novos} novos alertas de obras adicionados automaticamente esta semana!", icon="📡")
 
 # Estilos CSS personalizados
 st.markdown("""
@@ -167,13 +161,89 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- CONTROLO DE ACESSO (PALAVRA-PASSE) -----------------
+
+def renderizar_badges_integridade(obra):
+    """Gera HTML de badges para distinguir oportunidades Reais vs DEMO, estado de verificação e conflitos."""
+    origem = obra.get("origem_registo") or "REAL"
+    verif = obra.get("estado_verificacao") or "Por verificar"
+    conflito = bool(obra.get("tem_conflito", 0))
+
+    if origem == "DEMO":
+        b_orig = '<span style="background:#FFF7ED; color:#9A3412; border:1px solid #FDBA74; padding:2px 8px; border-radius:6px; font-size:0.76rem; font-weight:700;">🟠 Registo de Demonstração (DEMO)</span>'
+    else:
+        b_orig = '<span style="background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; padding:2px 8px; border-radius:6px; font-size:0.76rem; font-weight:700;">🟢 Oportunidade Real</span>'
+
+    if verif == "Confirmado por contacto direto":
+        b_ver = '<span style="background:#DBEAFE; color:#1E40AF; padding:2px 8px; border-radius:6px; font-size:0.76rem; font-weight:700; margin-left:5px;">✔️ Confirmado por contacto direto</span>'
+    elif verif == "Confirmado por fonte":
+        b_ver = '<span style="background:#E0F2FE; color:#0369A1; padding:2px 8px; border-radius:6px; font-size:0.76rem; font-weight:700; margin-left:5px;">📄 Confirmado por fonte</span>'
+    else:
+        b_ver = '<span style="background:#FEF3C7; color:#92400E; padding:2px 8px; border-radius:6px; font-size:0.76rem; font-weight:700; margin-left:5px;">🔎 Contacto/Dados: Por verificar</span>'
+
+    b_conf = ""
+    if conflito:
+        b_conf = '<span style="background:#FEE2E2; color:#991B1B; border:1px solid #FCA5A5; padding:2px 8px; border-radius:6px; font-size:0.76rem; font-weight:700; margin-left:5px;">⚠️ Conflito entre Fontes</span>'
+
+    return f"{b_orig}{b_ver}{b_conf}"
+
+
+def renderizar_relatorio_sincronizacao(rel):
+    """
+    Apresenta o relatório transparente de sincronização com hora de início/fim,
+    fontes consultadas, sucessos, falhas, contagens e mensagens de erro acionáveis.
+    Diferencia claramente 'Sucesso', 'Sucesso parcial' e 'Falha'.
+    """
+    if not rel:
+        return
+
+    estado = rel.get("estado_global", "Falha")
+    if estado == "Sucesso":
+        st.success(
+            f"🟢 **Sincronização Real: SUCESSO** — Todas as {rel.get('fontes_consultadas', 0)} fontes públicas responderam corretamente."
+        )
+    elif estado == "Sucesso parcial":
+        st.warning(
+            f"🟡 **Sincronização Real: SUCESSO PARCIAL** — {rel.get('fontes_sucesso', 0)} de {rel.get('fontes_consultadas', 0)} fontes responderam com sucesso ({rel.get('fontes_erro', 0)} com erro)."
+        )
+    else:
+        st.error(
+            f"🔴 **Sincronização Real: FALHA** — Nenhuma das {rel.get('fontes_consultadas', 0)} fontes pôde ser consultada. Verifique a ligação de rede ou os erros abaixo."
+        )
+
+    with st.expander("📊 Ver Detalhes da Sincronização (Fontes, Contagens, Horários e Erros)", expanded=(estado != "Sucesso" or st.session_state.get("acabou_de_sincronizar", False))):
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Fontes (OK / Total)", f"{rel.get('fontes_sucesso', 0)} / {rel.get('fontes_consultadas', 0)}", f"{rel.get('fontes_erro', 0)} erros")
+        c2.metric("Notícias Encontradas", rel.get("noticias_encontradas", 0))
+        c3.metric("Obras Criadas / Atualizadas", f"+{rel.get('obras_criadas', 0)} / ↻{rel.get('obras_atualizadas', 0)}")
+        c4.metric("Alertas p/ Validação / Duplicados", f"{rel.get('alertas_pendentes', 0)} / {rel.get('duplicados_ignorados', 0)}")
+
+        st.caption(
+            f"⏱️ **Hora de Início:** `{rel.get('inicio_ts', 'N/D')}` &nbsp;|&nbsp; "
+            f"**Hora de Fim:** `{rel.get('fim_ts', 'N/D')}` &nbsp;|&nbsp; "
+            f"**Modo:** `{rel.get('modo', 'MANUAL')}`"
+        )
+
+        rel_fontes = rel.get("relatorios_fontes", [])
+        if rel_fontes:
+            st.markdown("**Estado Detalhado por Fonte Pública:**")
+            for rf in rel_fontes:
+                if rf.get("sucesso"):
+                    st.markdown(
+                        f"- ✅ **{rf['fonte_nome']}** (`{rf['fonte_tipo']}`): HTTP `{rf.get('http_status', 200)}` — "
+                        f"**{len(rf.get('itens', []))}** itens recolhidos em `{rf.get('tempo_ms', 0)} ms`"
+                    )
+                else:
+                    st.markdown(
+                        f"- ❌ **{rf['fonte_nome']}** (`{rf['fonte_tipo']}`): **Erro:** `{rf.get('erro', 'Erro desconhecido')}`"
+                    )
+
+
+# ----------------- CONTROLO DE ACESSO (PIN CONFIGURÁVEL) -----------------
 def check_password():
     """Retorna True se o utilizador estiver autenticado, ou exibe o ecrã de login seguro."""
     if st.session_state.get("authenticated", False):
         return True
 
-    # Ocultar sidebar durante o ecrã de login
     st.markdown("""
     <style>
         [data-testid="stSidebar"] { display: none !important; }
@@ -193,11 +263,13 @@ def check_password():
             st.markdown("</div>", unsafe_allow_html=True)
 
             pwd_input = st.text_input("PIN de Acesso:", type="password", placeholder="Introduza o PIN de 4 dígitos...")
-            
-            senha_correta = "2003"
+
+            senha_correta = os.environ.get("PEMSA_PIN", "2003")
             try:
                 if hasattr(st, "secrets") and "PASSWORD" in st.secrets:
                     senha_correta = str(st.secrets["PASSWORD"])
+                elif hasattr(st, "secrets") and "PEMSA_PIN" in st.secrets:
+                    senha_correta = str(st.secrets["PEMSA_PIN"])
             except Exception:
                 pass
 
@@ -214,10 +286,10 @@ def check_password():
 
     return False
 
+
 if not check_password():
     st.stop()
 
-# Garantir que a barra lateral e o respetivo botão de expansão estão sempre ativos e visíveis
 st.markdown("""
 <style>
     [data-testid="stSidebar"] { display: block !important; }
@@ -256,14 +328,21 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("##### 🎯 **Filtro Global Rápido**")
     filtro_regiao_global = st.selectbox("Região:", ["Todas", "Norte", "Centro", "Sul", "Madeira", "Açores"], index=0)
+    incluir_demo_global = st.checkbox(
+        "Mostrar registos de demonstração (DEMO)",
+        value=True,
+        help="Desative para ver apenas as oportunidades reais recolhidas das fontes públicas."
+    )
 
     st.markdown("---")
-    kpis = obter_estatisticas_kpi()
-    st.markdown(f"**Resumo em Tempo Real:**")
-    st.write(f"• Obras no Radar: **{kpis['total_obras']}**")
+    kpis = obter_estatisticas_kpi(incluir_demo=incluir_demo_global)
+    st.markdown("**Resumo em Tempo Real:**")
+    st.write(f"• Obras Visíveis: **{kpis['total_obras']}** (`{kpis['obras_reais']}` Reais | `{kpis['obras_demo']}` Demo)")
     st.write(f"• Alta Prioridade: **{kpis['prioritarias']}**")
+    st.write(f"• Contactos Por Verificar: **{kpis['contactos_por_identificar']}**")
     st.write(f"• Tarefas em Atraso: **{kpis['tarefas_atrasadas']}**")
-    st.caption("Versão 1.0 MVP — Prospeção Pessoal PÉMSA")
+    if kpis.get("obras_com_conflito", 0) > 0:
+        st.warning(f"⚠️ Conflitos de Fontes: **{kpis['obras_com_conflito']}**")
 
     st.markdown("---")
     if st.button("🚪 Bloquear / Terminar Sessão", use_container_width=True):
@@ -274,25 +353,34 @@ with st.sidebar:
 # 1. PAINEL INICIAL (DASHBOARD)
 # =====================================================================
 if "1. Painel Inicial" in menu_opcao:
-    col_tit1, col_tit2 = st.columns([3.5, 1.2])
+    col_tit1, col_tit2 = st.columns([3.3, 1.4])
     with col_tit1:
         st.markdown('<div class="main-header"><span style="color:#CC2229;">⚡ RADAR PÉMSA</span> — Obras em Portugal</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sub-header">Inteligência Comercial, Qualificação Técnica e Decisores Chave</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>', unsafe_allow_html=True)
     with col_tit2:
-        ult_sync_str = obter_config("ultima_sincronizacao") or date.today().isoformat()
-        sem_sync_str = obter_config("ultima_semana_sync") or f"{date.today().isocalendar()[0]}-W{date.today().isocalendar()[1]:02d}"
+        ult_sync_ts = obter_config("ultima_sincronizacao_ts") or obter_config("ultima_sincronizacao") or "Nunca sincronizado"
+        ult_estado = obter_config("ultimo_estado_sync") or "Por sincronizar"
+        cor_bg = "#F0FDF4" if ult_estado == "Sucesso" else ("#FEFCE8" if ult_estado == "Sucesso parcial" else "#FEF2F2")
+        cor_txt = "#166534" if ult_estado == "Sucesso" else ("#854D0E" if ult_estado == "Sucesso parcial" else "#991B1B")
+        ic_est = "🟢" if ult_estado == "Sucesso" else ("🟡" if ult_estado == "Sucesso parcial" else "🔴")
         st.markdown(f"""
-        <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:6px 10px; text-align:center; margin-bottom:6px;">
-            <span style="color:#166534; font-weight:700; font-size:0.78rem;">🟢 Sincronizado ({sem_sync_str})</span><br>
-            <span style="color:#15803D; font-size:0.72rem;">Última: {ult_sync_str}</span>
+        <div style="background:{cor_bg}; border:1px solid #CBD5E1; border-radius:8px; padding:6px 10px; text-align:center; margin-bottom:6px;">
+            <span style="color:{cor_txt}; font-weight:700; font-size:0.78rem;">{ic_est} Estado Sync: {ult_estado}</span><br>
+            <span style="color:#334155; font-size:0.72rem;">Última consulta: {ult_sync_ts}</span>
         </div>
         """, unsafe_allow_html=True)
         if st.button("🔄 Atualizar Agora", use_container_width=True, key="btn_sync_dash"):
-            ok, qtd = verificar_e_executar_sincronizacao_automatica(forcar=True)
-            st.success(f"Sincronização concluída! ({qtd} novos registos processados)")
-            st.rerun()
+            with st.spinner("A consultar fontes públicas em tempo real (RSS, Contratação Pública, Notícias Setoriais)..."):
+                rel_sync = executar_sincronizacao_radar(forcar=True, modo="MANUAL")
+                st.session_state["ultimo_relatorio_ui"] = rel_sync
+                st.session_state["acabou_de_sincronizar"] = True
 
-    kpis = obter_estatisticas_kpi()
+    rel_exibir = st.session_state.get("ultimo_relatorio_ui") or obter_ultimo_relatorio_sincronizacao()
+    if rel_exibir:
+        renderizar_relatorio_sincronizacao(rel_exibir)
+        st.session_state["acabou_de_sincronizar"] = False
+
+    kpis = obter_estatisticas_kpi(incluir_demo=incluir_demo_global)
 
     # Métricas em 4 colunas
     col1, col2, col3, col4 = st.columns(4)
@@ -300,7 +388,7 @@ if "1. Painel Inicial" in menu_opcao:
         st.markdown(f"""
         <div class="kpi-card" style="border-left-color: #2563EB;">
             <div class="kpi-num" style="color: #2563EB;">{kpis['total_obras']}</div>
-            <div class="kpi-label">Novas Obras no Radar</div>
+            <div class="kpi-label">Obras no Radar ({kpis['obras_reais']} Reais)</div>
         </div>
         """, unsafe_allow_html=True)
     with col2:
@@ -314,7 +402,7 @@ if "1. Painel Inicial" in menu_opcao:
         st.markdown(f"""
         <div class="kpi-card" style="border-left-color: #EAB308;">
             <div class="kpi-num" style="color: #CA8A04;">{kpis['contactos_por_identificar']}</div>
-            <div class="kpi-label">Decisores por Mapear</div>
+            <div class="kpi-label">Contactos Por Verificar</div>
         </div>
         """, unsafe_allow_html=True)
     with col4:
@@ -327,49 +415,49 @@ if "1. Painel Inicial" in menu_opcao:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Oportunidade Sugerida (Destaque da Semana)
-    obras = listar_obras(regiao=filtro_regiao_global if filtro_regiao_global != "Todas" else None)
+    obras = listar_obras(
+        regiao=filtro_regiao_global if filtro_regiao_global != "Todas" else None,
+        incluir_demo=incluir_demo_global
+    )
     if obras:
-        # Priorizar obras detetadas na atualização semanal mais recente
-        refs_semanais = {"PEMSA-2026-CORUCHE", "PEMSA-2026-SOMFY", "PEMSA-2026-LOGICOR", "PEMSA-2026-SOPHIA"}
-        obras_desta_semana = [o for o in obras if o.get("codigo_ref") in refs_semanais]
-        top_obra = obras_desta_semana[0] if obras_desta_semana else obras[0]
+        obras_reais_lista = [o for o in obras if o.get("origem_registo") == "REAL"]
+        top_obra = obras_reais_lista[0] if obras_reais_lista else obras[0]
         top_detalhes = obter_obra_por_id(top_obra['id'])
 
-        st.subheader("💡 Oportunidade Sugerida para Esta Semana")
+        st.subheader("💡 Oportunidade em Destaque no Radar")
         with st.container(border=True):
             col_top_info, col_top_score = st.columns([3, 1])
             with col_top_info:
-                badge_novo = ' <span style="background:#FEE2E2; color:#991B1B; font-size:0.78rem; padding:2px 8px; border-radius:12px; font-weight:700; vertical-align:middle;">🆕 NOVO ESTA SEMANA</span>' if top_obra.get("codigo_ref") in refs_semanais else ""
-                st.markdown(f"### 📍 **{top_obra['titulo']}**{badge_novo}", unsafe_allow_html=True)
-                st.markdown(f"**Localização:** {top_obra['concelho']}, {top_obra['distrito']} ({top_obra['regiao']}) | **Segmento:** `{top_obra['segmento']}` | **Fase:** `{top_obra['fase']}`")
-                
-                # DESTAQUE CLARO DA PRIORIDADE DE CONTACTO, PROJETISTA E CONSTRUTOR
-                resp_nome = top_obra.get('responsavel_nome') or '1.ª Prioridade: Ligar ao Projetista MEP / Construtor'
-                resp_cargo = top_obra.get('responsavel_cargo') or '2.ª Prioridade: Instalador Elétrico'
-                resp_emp = top_obra.get('responsavel_empresa') or 'Projetista / Construtor a confirmar'
-                resp_ct = top_obra.get('responsavel_contacto') or 'Consultar Central Geral'
-                lnk_query = urllib.parse.quote(f"{resp_emp.split('|')[0].replace('Projetista:', '').replace('Construtor:', '').strip()} Engenharia Eletrotecnica Compras")
+                st.markdown(f"### 📍 **{top_obra['titulo']}**", unsafe_allow_html=True)
+                st.markdown(renderizar_badges_integridade(top_obra), unsafe_allow_html=True)
+                st.markdown(
+                    f"**Localização:** {top_obra['concelho']}, {top_obra['distrito']} ({top_obra['regiao']}) | "
+                    f"**Segmento:** `{top_obra['segmento']}` | **Fase:** `{top_obra['fase']}`"
+                )
+
+                resp_nome = top_obra.get('responsavel_nome') or 'Por verificar'
+                resp_cargo = top_obra.get('responsavel_cargo') or 'Por verificar'
+                resp_emp = top_obra.get('responsavel_empresa') or 'Por verificar'
+                resp_ct = top_obra.get('responsavel_contacto') or 'Por verificar'
+                verif_st = top_obra.get('estado_verificacao') or 'Por verificar'
+
                 st.markdown(f"""
                 <div style="background:#FFF5F5; border-left:4px solid #CC2229; padding:10px 14px; border-radius:6px; margin:10px 0;">
-                    <span style="font-weight:700; color:#991B1B;">🎯 A Quem Ligar Primeiro:</span>
+                    <span style="font-weight:700; color:#991B1B;">🎯 Prioridade / Contacto ({verif_st}):</span>
                     <span style="font-weight:700; color:#1E293B;"> {resp_nome}</span>
                     <span style="color:#475569; font-size:0.9rem;"> ({resp_cargo})</span>
-                    <br><span style="font-weight:700; color:#1E293B;">🏗️ Projetista / Construtor / Instalador:</span> <span style="color:#0F172A; font-weight:600;">{resp_emp}</span>
-                    <br><span style="font-size:0.86rem; color:#475569;">☎️ <b>Contactos Oficiais Reais:</b> {resp_ct} &nbsp;|&nbsp; <a href="https://www.linkedin.com/search/results/people/?keywords={lnk_query}" target="_blank" style="color:#CC2229; font-weight:600; text-decoration:none;">🔗 Procurar Engenheiros/Compras no LinkedIn ↗</a></span>
+                    <br><span style="font-weight:700; color:#1E293B;">🏗️ Intervenientes na Fonte:</span> <span style="color:#0F172A; font-weight:600;">{resp_emp}</span>
+                    <br><span style="font-size:0.86rem; color:#475569;">☎️ <b>Contacto:</b> {resp_ct}</span>
                 </div>
                 """, unsafe_allow_html=True)
 
                 st.markdown(f"**Resumo:** {top_obra['resumo']}")
+                st.caption(
+                    f"🔗 **Fonte:** [{top_obra.get('fonte_nome')}]({top_obra.get('fonte_url')}) | "
+                    f"**Publicação da Fonte:** `{top_obra.get('data_publicacao_fonte') or top_obra.get('data_detecao') or 'Por verificar'}` | "
+                    f"**Consulta:** `{top_obra.get('data_consulta_fonte') or 'N/D'}`"
+                )
 
-                # Empresas envolvidas
-                if top_detalhes and top_detalhes.get('empresas'):
-                    emps_txt = " • ".join([f"**{e['papel']}:** {e['nome']}" for e in top_detalhes['empresas']])
-                    st.markdown(f"**Empresas Identificadas:** {emps_txt}")
-                else:
-                    st.markdown("**Empresas:** Promotor identificado; Instalador e Projetista por confirmar.")
-
-                # Produtos recomendados
                 if top_detalhes and top_detalhes.get('produtos'):
                     prods_txt = ", ".join([p['familia_produto'].split('(')[0].strip() for p in top_detalhes['produtos'][:3]])
                     st.markdown(f"**Potencial PÉMSA:** `{prods_txt}` e acessórios de fixação.")
@@ -379,22 +467,13 @@ if "1. Painel Inicial" in menu_opcao:
             with col_top_score:
                 st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
                 st.metric("Pontuação PÉMSA", f"{top_obra['score']}/100", f"Prioridade {top_obra['prioridade']}")
-                st.caption(f"Valor Est.: {top_obra['valor_estimado'] or 'Sob Consulta'}")
+                st.caption(f"Valor Est.: {top_obra['valor_estimado'] or 'Por verificar'}")
                 if st.button("Ver Dossiê Completo ➡️", key="btn_top_detalhe"):
                     st.session_state["obra_selecionada_id"] = top_obra['id']
                     st.info("Aceda ao menu '4. Ficha da Obra' para ver o dossiê detalhado.")
                 st.markdown("</div>", unsafe_allow_html=True)
-
-        # Mostrar todas as novas obras adicionadas nesta atualização de segunda-feira
-        if len(obras_desta_semana) > 1:
-            with st.expander(f"🆕 Ver todas as {len(obras_desta_semana)} Novas Obras Detetadas na Atualização Semanal (2.ª Feira)", expanded=True):
-                for ob_sem in obras_desta_semana:
-                    c_s1, c_s2 = st.columns([4, 1])
-                    with c_s1:
-                        st.markdown(f"**📍 {ob_sem['titulo']}** — `{ob_sem['concelho']} ({ob_sem['regiao']})` | *{ob_sem['segmento']}*")
-                        st.caption(f"🎯 **{ob_sem.get('responsavel_nome')}** | 🏗️ **{ob_sem.get('responsavel_empresa')}** | ☎️ {ob_sem.get('responsavel_contacto')}")
-                    with c_s2:
-                        st.markdown(f"<div style='text-align:right;'><span class='badge-alta'>Score: {ob_sem['score']}/100</span></div>", unsafe_allow_html=True)
+    else:
+        st.info("Nenhuma obra encontrada para os filtros selecionados. Clique em '🔄 Atualizar Agora' para sincronizar com as fontes públicas.")
 
     # Tarefas Urgentes e Distribuição
     st.markdown("---")
@@ -437,9 +516,8 @@ if "1. Painel Inicial" in menu_opcao:
 # =====================================================================
 elif "2. Pesquisa de Obras" in menu_opcao:
     st.markdown('<div class="main-header">🔎 Radar de Obras em Portugal</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Pesquisa avançada, segmentação geográfica e qualificação comercial</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Pesquisa avançada, separação entre oportunidades reais e demonstração, e estado de verificação</div>', unsafe_allow_html=True)
 
-    # Barra de Filtros
     with st.expander("🛠️ Filtros de Pesquisa e Segmentação", expanded=True):
         fcol1, fcol2, fcol3, fcol4 = st.columns(4)
         with fcol1:
@@ -448,29 +526,28 @@ elif "2. Pesquisa de Obras" in menu_opcao:
                 "Logística / Armazéns", "Hotel / Turismo", "Energia / Renováveis", "Edifícios Terciários & Públicos"
             ])
         with fcol2:
-            filtro_regiao = st.selectbox("Região:", ["Todas", "Norte", "Centro", "Sul", "Madeira", "Açores"])
+            filtro_regiao = st.selectbox("Região:", ["Todas", "Norte", "Centro", "Sul", "Madeira", "Açores", "Por verificar"])
         with fcol3:
             filtro_fase = st.selectbox("Fase da Obra:", [
                 "Todas", "Projeto de Execução / MEP", "Concurso de Empreitada",
-                "Início de Construção", "Em Obra (Instalações a decorrer)"
+                "Adjudicação / Pré-Construção", "Início de Construção", "Em Obra (Instalações a decorrer)", "Por verificar"
             ])
         with fcol4:
             filtro_prioridade = st.selectbox("Prioridade Comercial:", ["Todas", "Alta", "Média", "Baixa"])
 
         busca_texto = st.text_input("🔍 Pesquisar por palavra-chave, nome da obra, concelho ou empresa:", "")
 
-    # Obter Obras Filtradas
     obras_filtradas = listar_obras(
         segmento=filtro_segmento,
         regiao=filtro_regiao,
         fase=filtro_fase,
         prioridade=filtro_prioridade,
-        busca=busca_texto if busca_texto else None
+        busca=busca_texto if busca_texto else None,
+        incluir_demo=incluir_demo_global
     )
 
     st.write(f"Encontradas **{len(obras_filtradas)}** obras correspondentes aos critérios.")
 
-    # Modo de Exibição
     tab_cards, tab_tabela = st.tabs(["🗂️ Vista de Cartões Comerciais", "📊 Vista de Tabela Estruturada"])
 
     with tab_cards:
@@ -481,38 +558,43 @@ elif "2. Pesquisa de Obras" in menu_opcao:
                 c_info, c_score, c_btn = st.columns([3.5, 1.2, 1])
 
                 with c_info:
-                    # Badges
                     badge_class = "badge-alta" if obra['score'] >= 75 else ("badge-media" if obra['score'] >= 50 else "badge-baixa")
                     st.markdown(f"#### {obra['titulo']}")
+                    st.markdown(renderizar_badges_integridade(obra), unsafe_allow_html=True)
                     st.markdown(f"""
+                    <div style="margin-top:5px;">
                     <span class="{badge_class}">Prioridade {obra['prioridade']} ({obra['score']}/100)</span>
                     <span style="background:#EEF2F6; color:#1E293B; padding:3px 8px; border-radius:5px; font-size:0.8rem; margin-left:6px;">📍 {obra['concelho']}, {obra['distrito']}</span>
                     <span style="background:#EEF2F6; color:#1E293B; padding:3px 8px; border-radius:5px; font-size:0.8rem; margin-left:6px;">🏗️ {obra['segmento']}</span>
                     <span style="background:#F0FDF4; color:#15803D; padding:3px 8px; border-radius:5px; font-size:0.8rem; margin-left:6px;">⏱️ {obra['fase']}</span>
+                    </div>
                     """, unsafe_allow_html=True)
 
                     st.markdown(f"<p style='color:#475569; margin-top:8px;'>{obra['resumo']}</p>", unsafe_allow_html=True)
 
-                    # Destaque da Prioridade, Projetista e Construtor
-                    r_nome = obra.get('responsavel_nome') or '1.ª Prioridade: Ligar ao Projetista / Construtor'
-                    r_cargo = obra.get('responsavel_cargo') or '2.ª Prioridade: Instalador Elétrico'
-                    r_emp = obra.get('responsavel_empresa') or 'Projetista / Construtor a confirmar'
-                    r_ct = obra.get('responsavel_contacto') or 'Contacto institucional na ficha'
+                    r_nome = obra.get('responsavel_nome') or 'Por verificar'
+                    r_cargo = obra.get('responsavel_cargo') or 'Por verificar'
+                    r_emp = obra.get('responsavel_empresa') or 'Por verificar'
+                    r_ct = obra.get('responsavel_contacto') or 'Por verificar'
                     st.markdown(f"""
                     <div style="background:#F8FAFC; border-left:3px solid #CC2229; padding:8px 12px; margin:8px 0; border-radius:4px;">
-                        <span style="font-weight:700; color:#991B1B;">🎯 Prioridade:</span>
+                        <span style="font-weight:700; color:#991B1B;">🎯 Contacto / Prioridade ({obra.get('estado_verificacao') or 'Por verificar'}):</span>
                         <span> <b>{r_nome}</b> <span style="color:#475569; font-size:0.88rem;">({r_cargo})</span></span>
-                        <br><span style="font-weight:700; color:#1E293B;">🏗️ Projetista / Construtor / Instalador:</span> <b>{r_emp}</b>
-                        <br><span style="font-size:0.85rem; color:#64748B;">☎️ Contactos Oficiais: <b>{r_ct}</b></span>
+                        <br><span style="font-weight:700; color:#1E293B;">🏗️ Intervenientes:</span> <b>{r_emp}</b>
+                        <br><span style="font-size:0.85rem; color:#64748B;">☎️ Contacto: <b>{r_ct}</b></span>
                     </div>
                     """, unsafe_allow_html=True)
 
-                    st.caption(f"🔗 **Fonte:** {obra['fonte_nome']} | Deteção: {obra['data_detecao']} | Ref: `{obra['codigo_ref']}`")
+                    st.caption(
+                        f"🔗 **Fonte:** [{obra['fonte_nome']}]({obra['fonte_url']}) | "
+                        f"Pub. Fonte: `{obra.get('data_publicacao_fonte') or obra['data_detecao']}` | "
+                        f"Consulta: `{obra.get('data_consulta_fonte') or 'N/D'}` | Ref: `{obra['codigo_ref']}`"
+                    )
 
                 with c_score:
-                    st.markdown(f"**Timing Fornecimento:**")
+                    st.markdown("**Timing Fornecimento:**")
                     st.caption(f"{obra['timing_fornecimento']}")
-                    st.markdown(f"**Próxima Ação:**")
+                    st.markdown("**Próxima Ação:**")
                     st.caption(f"{obra['proxima_acao']}")
 
                 with c_btn:
@@ -520,20 +602,21 @@ elif "2. Pesquisa de Obras" in menu_opcao:
                     if st.button("Abrir Ficha 📄", key=f"btn_ver_{obra['id']}", use_container_width=True):
                         st.session_state["obra_selecionada_id"] = obra['id']
                         st.session_state["navegar_para_ficha"] = True
-                        st.info(f"Obra selecionada! Vá a '4. Ficha da Obra' para gerir.")
+                        st.info("Obra selecionada! Vá a '4. Ficha da Obra' para gerir.")
 
     with tab_tabela:
         if obras_filtradas:
             df = pd.DataFrame(obras_filtradas)
             colunas_exibir = [
-                'id', 'titulo', 'score', 'prioridade',
-                'responsavel_nome', 'responsavel_cargo', 'responsavel_empresa', 'responsavel_contacto',
-                'segmento', 'distrito', 'regiao', 'fase', 'status_comercial', 'valor_estimado'
+                'id', 'origem_registo', 'estado_verificacao', 'tem_conflito',
+                'titulo', 'score', 'prioridade',
+                'responsavel_nome', 'responsavel_empresa', 'responsavel_contacto',
+                'segmento', 'distrito', 'concelho', 'regiao', 'fase',
+                'status_comercial', 'valor_estimado', 'data_publicacao_fonte', 'fonte_url'
             ]
             colunas_presentes = [c for c in colunas_exibir if c in df.columns]
             st.dataframe(df[colunas_presentes], use_container_width=True)
 
-            # Exportação rápida
             csv = df[colunas_presentes].to_csv(index=False).encode('utf-8')
             st.download_button("📥 Descarregar Tabela em CSV", csv, "radar_pemsa_obras.csv", "text/csv")
         else:
@@ -546,26 +629,27 @@ elif "3. Mapa de Portugal" in menu_opcao:
     st.markdown('<div class="main-header">🗺️ Mapa de Obras em Portugal</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Geolocalização e densidade de oportunidades (Norte, Centro, Sul e Ilhas)</div>', unsafe_allow_html=True)
 
-    obras_mapa = listar_obras(regiao=filtro_regiao_global if filtro_regiao_global != "Todas" else None)
+    obras_mapa = listar_obras(
+        regiao=filtro_regiao_global if filtro_regiao_global != "Todas" else None,
+        incluir_demo=incluir_demo_global
+    )
     df_mapa = pd.DataFrame(obras_mapa)
 
     if not df_mapa.empty and 'lat' in df_mapa.columns and 'lon' in df_mapa.columns:
-        # Filtrar apenas as que têm coordenadas válidas
         df_geo = df_mapa.dropna(subset=['lat', 'lon']).copy()
 
-        # Legenda explicativa
         col_leg1, col_leg2, col_leg3 = st.columns(3)
         col_leg1.markdown("🟢 **Alta Prioridade (Score >= 75):** Agir Imediatamente")
         col_leg2.markdown("🟡 **Média Prioridade (50 - 74):** Acompanhar Concurso")
         col_leg3.markdown("⚪ **Baixa Prioridade (< 50):** Investigação Passiva")
 
-        # Exibir o mapa interativo
-        st.map(df_geo, latitude='lat', longitude='lon', size=25, zoom=6)
+        if not df_geo.empty:
+            st.map(df_geo, latitude='lat', longitude='lon', size=25, zoom=6)
 
         st.markdown("#### Lista de Obras Geolocalizadas:")
         for _, row in df_geo.iterrows():
             with st.expander(f"📍 {row['titulo']} — {row['distrito']} (Score: {row['score']}/100)"):
-                st.write(f"**Segmento:** {row['segmento']} | **Fase:** {row['fase']}")
+                st.write(f"**Origem:** `{row.get('origem_registo', 'REAL')}` | **Segmento:** {row['segmento']} | **Fase:** {row['fase']}")
                 st.write(f"**Resumo:** {row['resumo']}")
                 st.write(f"**Próxima Ação:** {row['proxima_acao']}")
                 if st.button("Ver Dossiê", key=f"map_btn_{row['id']}"):
@@ -579,17 +663,18 @@ elif "3. Mapa de Portugal" in menu_opcao:
 # =====================================================================
 elif "4. Ficha da Obra" in menu_opcao:
     st.markdown('<div class="main-header">📋 Ficha da Obra & Dossiê Comercial</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Qualificação 360°, cadeia de decisão e produtos PÉMSA compatíveis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Qualificação 360°, verificação de contactos, resolução de conflitos e histórico de fontes</div>', unsafe_allow_html=True)
 
-    todas_obras = listar_obras()
+    todas_obras = listar_obras(incluir_demo=True)
     if not todas_obras:
         st.warning("Nenhuma obra registada na base de dados.")
         st.stop()
 
-    # Seleção de obra
-    opcoes_obras = {o['id']: f"[{o['score']} pts] {o['titulo']} ({o['distrito']})" for o in todas_obras}
+    opcoes_obras = {
+        o['id']: f"[{'DEMO' if o.get('origem_registo')=='DEMO' else 'REAL'} | {o['score']} pts] {o['titulo']} ({o['distrito']})"
+        for o in todas_obras
+    }
     obra_id_default = st.session_state.get("obra_selecionada_id", todas_obras[0]['id'])
-    # Garantir que o ID existe nas opções
     if obra_id_default not in opcoes_obras:
         obra_id_default = todas_obras[0]['id']
 
@@ -605,41 +690,63 @@ elif "4. Ficha da Obra" in menu_opcao:
     if obra:
         st.markdown("---")
 
-        # Cabeçalho Principal da Obra
         col_h1, col_h2 = st.columns([3, 1])
         with col_h1:
             st.markdown(f"## 🏗️ {obra['titulo']}")
-            st.markdown(f"**Referência:** `{obra['codigo_ref']}` | **Segmento:** `{obra['segmento']}` | **Localização:** {obra['morada_localizacao'] or obra['concelho']}, {obra['distrito']} ({obra['regiao']})")
-            st.markdown(f"**Fonte Verificável:** [{obra['fonte_nome']}]({obra['fonte_url']}) | Data Deteção: {obra['data_detecao']}")
+            st.markdown(renderizar_badges_integridade(obra), unsafe_allow_html=True)
+            st.markdown(
+                f"**Referência:** `{obra['codigo_ref']}` | **Chave Estável:** `{obra.get('chave_estavel') or 'N/D'}` | "
+                f"**Segmento:** `{obra['segmento']}` | **Localização:** {obra['morada_localizacao'] or obra['concelho']}, {obra['distrito']} ({obra['regiao']})"
+            )
+            st.markdown(
+                f"**Fonte:** [{obra['fonte_nome']}]({obra['fonte_url']}) | "
+                f"**Data Publicação Fonte:** `{obra.get('data_publicacao_fonte') or obra['data_detecao']}` | "
+                f"**Data/Hora Consulta:** `{obra.get('data_consulta_fonte') or 'N/D'}`"
+            )
         with col_h2:
             st.metric("Pontuação PÉMSA", f"{obra['score']}/100", f"Prioridade {obra['prioridade']}")
             st.progress(obra['score'] / 100)
 
-        # DESTAQUE DA PRIORIDADE DE CONTACTO, PROJETISTA E CONSTRUTOR
-        r_nome = obra.get('responsavel_nome') or '1.ª Prioridade: Ligar ao Projetista MEP / Construtor'
-        r_cargo = obra.get('responsavel_cargo') or '2.ª Prioridade: Instalador Elétrico'
-        r_emp = obra.get('responsavel_empresa') or 'Projetista / Construtor a confirmar'
-        r_ct = obra.get('responsavel_contacto') or 'Consultar Central Geral'
+        if obra.get("origem_registo") == "DEMO":
+            col_warn_d1, col_warn_d2 = st.columns([3, 1])
+            with col_warn_d1:
+                st.warning(
+                    "⚠️ **Aviso de Integridade:** Este registo provém da base inicial de demonstração (`DEMO`). "
+                    "As empresas ou contactos atribuídos não devem ser assumidos como adjudicados sem verificação documental."
+                )
+            with col_warn_d2:
+                if st.button("🧹 Limpar dados não verificados", key=f"btn_clean_demo_{obra['id']}", use_container_width=True):
+                    limpar_atribuicoes_nao_verificadas_obra(obra['id'])
+                    st.success("Atribuições não verificadas colocadas como 'Por verificar'. Tarefas e notas foram preservadas!")
+                    st.rerun()
+
+        r_nome = obra.get('responsavel_nome') or 'Por verificar'
+        r_cargo = obra.get('responsavel_cargo') or 'Por verificar'
+        r_emp = obra.get('responsavel_empresa') or 'Por verificar'
+        r_ct = obra.get('responsavel_contacto') or 'Por verificar'
+        r_verif = obra.get('estado_verificacao') or 'Por verificar'
         lnk_q_ficha = urllib.parse.quote(f"{r_emp.split('|')[0].replace('Projetista:', '').replace('Projetista MEP:', '').replace('Construtor:', '').strip()} Engenharia Eletrotecnica")
+
         st.markdown(f"""
         <div style="background:#FFF5F5; border:1px solid #FECACA; border-left:5px solid #CC2229; padding:12px 16px; border-radius:8px; margin: 12px 0;">
-            <div style="font-size:0.8rem; font-weight:700; color:#991B1B; text-transform:uppercase; letter-spacing:0.5px;">🎯 Prioridade de Abordagem (A Quem Ligar Primeiro)</div>
+            <div style="font-size:0.8rem; font-weight:700; color:#991B1B; text-transform:uppercase; letter-spacing:0.5px;">
+                🎯 Prioridade de Abordagem & Estado de Verificação: [{r_verif}]
+            </div>
             <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin-top:2px;">{r_nome}</div>
             <div style="color:#475569; font-size:0.95rem; margin-top:4px;">
-                <b>2.ª Linha de Abordagem:</b> {r_cargo}
+                <b>2.ª Linha / Cargo:</b> {r_cargo}
             </div>
             <div style="color:#0F172A; font-size:0.98rem; margin-top:6px; background:#FFFFFF; padding:6px 10px; border-radius:5px; border:1px solid #F1F5F9;">
                 🏗️ <b>Projetista / Construtor / Instalador:</b> {r_emp}
             </div>
             <div style="color:#475569; font-size:0.9rem; margin-top:6px;">
-                ☎️ <b>Contactos Oficiais Verificados:</b> {r_ct} &nbsp;|&nbsp;
-                <a href="https://www.linkedin.com/search/results/people/?keywords={lnk_q_ficha}" target="_blank" style="color:#CC2229; font-weight:700; text-decoration:none;">🔗 Pesquisar Engenheiros / Compras desta Empresa no LinkedIn ↗</a>
+                ☎️ <b>Contacto:</b> {r_ct} &nbsp;|&nbsp;
+                <a href="https://www.linkedin.com/search/results/people/?keywords={lnk_q_ficha}" target="_blank" style="color:#CC2229; font-weight:700; text-decoration:none;">🔗 Pesquisar no LinkedIn ↗</a>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Opção rápida para o utilizador editar/guardar o nome real do engenheiro/comprador assim que o descobrir ao telefone
-        with st.expander("✏️ Atualizar Projetista, Construtor ou Guardar Nome Real do Engenheiro / Comprador Descoberto"):
+        with st.expander("✏️ Atualizar Projetista, Construtor, Contacto e Estado de Verificação"):
             with st.form(f"form_edit_interv_{obra['id']}"):
                 ei_col1, ei_col2 = st.columns(2)
                 with ei_col1:
@@ -647,36 +754,48 @@ elif "4. Ficha da Obra" in menu_opcao:
                     novo_resp_emp = st.text_input("Projetista MEP / Construtor / Instalador:", value=r_emp)
                 with ei_col2:
                     novo_resp_cargo = st.text_input("2.ª Prioridade / Cargo / Departamento:", value=r_cargo)
-                    novo_resp_ct = st.text_input("Telefone Direto / Central / Email:", value=r_ct)
-                if st.form_submit_button("💾 Guardar Dados de Contacto e Intervenientes"):
-                    atualizar_intervenientes_obra(obra['id'], novo_resp_nome, novo_resp_cargo, novo_resp_emp, novo_resp_ct)
-                    st.success("Prioridade, Projetista/Construtor e Contacto atualizados com sucesso!")
+                    novo_resp_ct = st.text_input("Telefone / Email Verificado:", value=r_ct)
+
+                idx_ver = list(ESTADOS_VERIFICACAO_VALIDOS).index(r_verif) if r_verif in ESTADOS_VERIFICACAO_VALIDOS else 0
+                novo_est_verif = st.selectbox(
+                    "Estado de Verificação do Contacto:",
+                    options=list(ESTADOS_VERIFICACAO_VALIDOS),
+                    index=idx_ver,
+                    help="Contactos confirmados manualmente nunca são substituídos pelas atualizações automáticas."
+                )
+                if st.form_submit_button("💾 Guardar Dados de Contacto e Marcar como Protegido"):
+                    atualizar_intervenientes_obra(
+                        obra['id'], novo_resp_nome, novo_resp_cargo, novo_resp_emp, novo_resp_ct, estado_verificacao=novo_est_verif
+                    )
+                    st.success("Dados de contacto e estado de verificação guardados! Protegidos contra substituição automática.")
                     st.rerun()
 
-        # Atualização do Estado Comercial
         with st.container(border=True):
             col_est1, col_est2 = st.columns([2, 3])
             with col_est1:
-                novo_estado = st.selectbox("Estado no Pipeline Comercial:", [
+                estados_lista = [
                     "Nova Oportunidade", "Em Qualificação", "Contacto Feito",
                     "Apresentação Técnica Realizada", "Proposta Enviada", "Ganha (Fornecimento Fechado)", "Perdida", "Arquivada"
-                ], index=["Nova Oportunidade", "Em Qualificação", "Contacto Feito", "Apresentação Técnica Realizada", "Proposta Enviada", "Ganha (Fornecimento Fechado)", "Perdida", "Arquivada"].index(obra['status_comercial']) if obra['status_comercial'] in ["Nova Oportunidade", "Em Qualificação", "Contacto Feito", "Apresentação Técnica Realizada", "Proposta Enviada", "Ganha (Fornecimento Fechado)", "Perdida", "Arquivada"] else 0)
+                ]
+                novo_estado = st.selectbox(
+                    "Estado no Pipeline Comercial:",
+                    estados_lista,
+                    index=estados_lista.index(obra['status_comercial']) if obra['status_comercial'] in estados_lista else 0
+                )
             with col_est2:
-                novas_notas = st.text_input("Notas Comerciais:", value=obra.get('notas_comerciais') or "")
+                novas_notas = st.text_input("Notas Comerciais (Preservadas nas sincronizações):", value=obra.get('notas_comerciais') or "")
             if st.button("💾 Gravar Atualização Comercial"):
                 atualizar_status_obra(obra['id'], novo_estado, novas_notas)
-                st.success("Estado e notas atualizados!")
+                st.success("Estado e notas comerciais atualizados!")
                 st.rerun()
 
-        # Detalhes em 3 Separadores
         t_scoring, t_empresas, t_produtos, t_tarefas = st.tabs([
             "📊 Pontuação & Justificação Comercial",
             "👥 Cadeia de Decisão & Contactos",
             "⚡ Produtos PÉMSA Recomendados",
-            "📅 Tarefas & Histórico"
+            "📅 Tarefas, Conflitos & Histórico de Fontes"
         ])
 
-        # TAB 1: BREAKDOWN DO SCORE
         with t_scoring:
             st.subheader("Critérios de Avaliação PÉMSA (0 a 100)")
             breakdown_data = json.loads(obra['score_breakdown']) if obra.get('score_breakdown') else None
@@ -690,15 +809,14 @@ elif "4. Ficha da Obra" in menu_opcao:
                     col_cr3.caption(f"{item['justificacao']}")
                     st.divider()
             else:
-                st.info("Recalcular pontuação comercial para esta obra.")
+                st.info("Pontuação calculada pela matriz técnica PÉMSA.")
 
             st.markdown(f"**Timing de Fornecimento:** {obra['timing_fornecimento']}")
             st.markdown(f"👉 **Ação Prioritária Sugerida:** {obra['proxima_acao']}")
 
-        # TAB 2: CADEIA DE DECISÃO
         with t_empresas:
             st.subheader("Cadeia de Decisão e Empresas Envolvidas")
-            st.caption("A prescrição técnica acontece nos projetistas; a compra efetiva é feita pelos instaladores elétricos.")
+            st.caption("Cada relação indica se foi 'Confirmado por fonte', 'Confirmado por contacto direto' ou se está 'Por verificar'.")
 
             papeis_ordem = ["Promotor/Dono", "Projetista MEP", "Empreiteiro Geral", "Instalador Elétrico", "Comprador/Distribuidor"]
             empresas_da_obra = obra.get('empresas', [])
@@ -711,27 +829,27 @@ elif "4. Ficha da Obra" in menu_opcao:
                         for emp in emp_papel:
                             col_e_nome, col_e_contact = st.columns([2, 2])
                             with col_e_nome:
-                                st.markdown(f"**{emp['nome']}** (`{emp['tipo']}`)")
-                                st.write(f"📍 {emp['cidade']}, {emp['distrito']} | Tel: {emp['telefone']}")
-                                st.caption(f"Notas: {emp.get('rel_notas') or emp.get('notas') or 'Sem notas'}")
+                                ver_rel = emp.get('rel_verificacao') or 'Por verificar'
+                                st.markdown(f"**{emp['nome']}** (`{emp['tipo']}`) — *{ver_rel}*")
+                                st.write(f"📍 {emp['cidade']}, {emp['distrito']} | Tel Sede: {emp['telefone']}")
+                                st.caption(f"Evidência/Notas: {emp.get('rel_notas') or emp.get('notas') or 'Por verificar'}")
                             with col_e_contact:
-                                # Buscar pessoas de contacto
                                 conn = get_connection()
                                 cur = conn.cursor()
                                 cur.execute("SELECT * FROM contactos WHERE empresa_id = ?", (emp['id'],))
                                 cts = cur.fetchall()
                                 conn.close()
                                 if cts:
-                                    st.markdown("**Contactos Identificados:**")
+                                    st.markdown("**Contactos Associados:**")
                                     for c in cts:
-                                        st.write(f"👤 **{c['nome']}** — *{c['cargo']}*")
-                                        st.write(f"📞 {c['telefone']} | ✉️ {c['email']}")
+                                        c_dict = dict(c)
+                                        st.write(f"👤 **{c_dict['nome']}** — *{c_dict.get('estado_verificacao', 'Por verificar')}*")
+                                        st.write(f"📞 {c_dict['telefone']} | ✉️ {c_dict['email']}")
                                 else:
-                                    st.warning("⚠️ Contactos diretos ainda não mapeados.")
+                                    st.warning("⚠️ Contactos diretos por verificar.")
                     else:
-                        st.info(f"Nenhuma empresa associada como '{papel}'. Mapear na fase de qualificação.")
+                        st.info(f"Nenhuma empresa confirmada como '{papel}' (Por verificar).")
 
-        # TAB 3: PRODUTOS PÉMSA
         with t_produtos:
             st.subheader("Compatibilidade Técnica com a Gama PÉMSA")
             produtos_obra = obra.get('produtos', [])
@@ -747,13 +865,36 @@ elif "4. Ficha da Obra" in menu_opcao:
                             if cat_info:
                                 st.caption(f"💡 **Vantagem Comercial:** {cat_info['vantagem_competitiva']}")
                         with col_p2:
-                            st.markdown(f"**Classificação:**")
+                            st.markdown("**Classificação:**")
                             st.info(f"{p['nivel_potencial']}")
             else:
                 st.info("Ainda não foram adicionados produtos específicos a esta obra.")
 
-        # TAB 4: TAREFAS & HISTÓRICO
         with t_tarefas:
+            # 1. Conflitos de fontes pendentes de resolução
+            historico_obra = obra.get("historico", [])
+            conflitos_abertos = [h for h in historico_obra if h.get("acao") == "CONFLITO" and h.get("resolvido", 0) == 0]
+            if conflitos_abertos:
+                st.error(f"⚠️ Existem **{len(conflitos_abertos)} conflito(s) de informação** detetados entre fontes diferentes para esta obra:")
+                for conf in conflitos_abertos:
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**Campo em Divergência:** `{conf['campo']}`  \n"
+                            f"- **Valor Atual na Obra:** `{conf['valor_anterior']}`  \n"
+                            f"- **Novo Valor Encontrado na Fonte ({conf['fonte_nome']}):** `{conf['valor_novo']}`"
+                        )
+                        c_cf1, c_cf2 = st.columns(2)
+                        with c_cf1:
+                            if st.button("✅ Aceitar Novo Valor da Fonte", key=f"btn_acc_conf_{conf['id']}", use_container_width=True):
+                                resolver_conflito_obra(obra['id'], conf['id'], aceitar_novo_valor=True)
+                                st.success("Novo valor aplicado e conflito resolvido!")
+                                st.rerun()
+                        with c_cf2:
+                            if st.button("🛡️ Manter Valor Atual", key=f"btn_ign_conf_{conf['id']}", use_container_width=True):
+                                resolver_conflito_obra(obra['id'], conf['id'], aceitar_novo_valor=False)
+                                st.info("Valor atual mantido e conflito encerrado.")
+                                st.rerun()
+
             st.subheader("Tarefas Comerciais para esta Obra")
             tarefas_obra = obra.get('tarefas', [])
 
@@ -785,6 +926,18 @@ elif "4. Ficha da Obra" in menu_opcao:
                     st.success("Tarefa agendada!")
                     st.rerun()
 
+            st.markdown("---")
+            st.subheader("📜 Histórico de Alterações, Fontes e Auditoria")
+            if historico_obra:
+                for h in historico_obra:
+                    st.markdown(
+                        f"- **`[{h['created_at']}]` `{h['acao']}`** no campo **`{h['campo']}`**: "
+                        f"de `{h.get('valor_anterior') or 'vazio'}` ➡️ para **`{h.get('valor_novo')}`** "
+                        f"*(Fonte: {h.get('fonte_nome') or 'Sistema'})*"
+                    )
+            else:
+                st.caption("Sem alterações de histórico registadas.")
+
 # =====================================================================
 # 5. EMPRESAS & DECISORES
 # =====================================================================
@@ -803,10 +956,10 @@ elif "5. Empresas & Decisores" in menu_opcao:
     st.write(f"Total de empresas encontradas: **{len(empresas)}**")
 
     for emp in empresas:
-        with st.expander(f"🏢 {emp['nome']} — {emp['tipo']} ({emp['cidade']}, {emp['distrito']})"):
+        with st.expander(f"🏢 {emp['nome']} — {emp['tipo']} ({emp['cidade']}, {emp['distrito']}) [{emp.get('estado_verificacao', 'Por verificar')}]"):
             c_e1, c_e2 = st.columns(2)
             with c_e1:
-                st.markdown(f"**NIF:** {emp['nif'] or 'N/D'} | **Relação Comercial:** `{emp['nivel_relacionamento']}`")
+                st.markdown(f"**NIF:** {emp['nif'] or 'Por verificar'} | **Relação Comercial:** `{emp['nivel_relacionamento']}`")
                 st.markdown(f"📞 {emp['telefone']} | ✉️ {emp['email']}")
                 st.markdown(f"🌐 [{emp['website']}]({emp['website']})" if emp['website'] else "")
                 st.caption(f"Notas: {emp['notas']}")
@@ -814,27 +967,27 @@ elif "5. Empresas & Decisores" in menu_opcao:
                 if emp.get('obras_participa'):
                     st.markdown("**Obras Associadas:**")
                     for ob in emp['obras_participa']:
-                        st.write(f"• [{ob['papel']}] {ob['titulo']}")
+                        st.write(f"• [{ob['papel']} — *{ob.get('estado_verificacao', 'Por verificar')}*] {ob['titulo']}")
 
             with c_e2:
-                st.markdown("##### 👤 Pessoas de Contacto Mapeadas")
+                st.markdown("##### 👤 Departamentos / Contactos Registados")
                 if emp.get('contactos'):
                     for ct in emp['contactos']:
                         with st.container(border=True):
-                            st.markdown(f"**{ct['nome']}** — *{ct['cargo']}*")
+                            st.markdown(f"**{ct['nome']}** — *{ct['cargo']}* (`{ct.get('estado_verificacao', 'Por verificar')}`)")
                             st.caption(f"Departamento: {ct['departamento'] or 'Geral'}")
                             st.write(f"📞 {ct['telefone']} | ✉️ {ct['email']}")
                             if ct['linkedin']:
-                                st.markdown(f"[Perfil LinkedIn]({ct['linkedin']})")
+                                st.markdown(f"[Pesquisa / Perfil LinkedIn]({ct['linkedin']})")
                 else:
-                    st.info("Ainda sem contactos pessoais registados para esta empresa.")
+                    st.info("Ainda sem contactos registados para esta empresa (Por verificar).")
 
 # =====================================================================
 # 6. PLANO COMERCIAL & TAREFAS
 # =====================================================================
 elif "6. Plano Comercial" in menu_opcao:
     st.markdown('<div class="main-header">📅 Plano Comercial & Ações de Seguimento</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Gestão de contactos, prazos e histórico de prospeção pessoal</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Gestão de contactos, prazos e histórico de prospeção pessoal (100% preservado nas sincronizações)</div>', unsafe_allow_html=True)
 
     tarefas = listar_tarefas(apenas_pendentes=False)
     today = date.today().isoformat()
@@ -858,14 +1011,13 @@ elif "6. Plano Comercial" in menu_opcao:
             for t in lista_pend:
                 is_atr = t['data_limite'] < today
                 is_hj = t['data_limite'] == today
-                cor_borda = "#EF4444" if is_atr else ("#F59E0B" if is_hj else "#3B82F6")
 
                 with st.container(border=True):
                     c1, c2 = st.columns([3, 1])
                     with c1:
                         st.markdown(f"#### {'🔴 [EM ATRASO] ' if is_atr else ('🟡 [HOJE] ' if is_hj else '🔵 ')}{t['titulo']}")
                         st.write(f"🏗️ **Obra:** {t.get('obra_titulo', 'Geral')} (Score {t.get('obra_score')})")
-                        st.write(f"🏢 **Empresa:** {t.get('empresa_nome', 'N/D')} | 👤 **Contacto:** {t.get('contacto_nome', 'N/D')} ({t.get('contacto_telefone', '')})")
+                        st.write(f"🏢 **Empresa:** {t.get('empresa_nome', 'Por verificar')} | 👤 **Contacto:** {t.get('contacto_nome', 'Por verificar')} ({t.get('contacto_telefone', '')})")
                         st.caption(f"Data Limite: **{t['data_limite']}** | Ação: `{t['tipo']}` | Prioridade: `{t['prioridade']}`")
                     with c2:
                         res = st.text_input("Resultado:", key=f"res_plan_{t['id']}")
@@ -889,335 +1041,264 @@ elif "6. Plano Comercial" in menu_opcao:
 # 7. MOTOR DE RECOLHA & ALERTAS
 # =====================================================================
 elif "7. Motor de Recolha" in menu_opcao:
-    st.markdown('<div class="main-header">📡 Motor de Recolha, Alertas & Exportação</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Fontes públicas (Portal BASE, TED, Notícias), Análise com IA e Exportação para Excel</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">📡 Motor de Recolha, Alertas & Auditoria</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Sincronização Real com Fontes Públicas, Validação de Evidência e Relatório de Integridade</div>', unsafe_allow_html=True)
 
-    tab_alertas, tab_estrategia, tab_ia, tab_freq, tab_excel = st.tabs([
-        "🔔 Alertas Recentes das 5 Fontes",
-        "🎯 Matriz Estratégica das Fontes (SIAIA, BASE, TED)",
-        "🤖 Inserir / Analisar Texto de Obra com IA",
-        "⏰ Frequência de Atualização & Automação",
-        "📑 Exportar para Excel / Relatório"
+    tab_alertas, tab_auditoria, tab_estrategia, tab_ia, tab_freq, tab_excel = st.tabs([
+        "🔔 Alertas Pendentes de Validação",
+        "🛡️ Auditoria de Registos Suspeitos (DEMO)",
+        "🎯 Matriz Estratégica das Fontes",
+        "🤖 Inserir / Analisar Texto de Obra",
+        "⏰ Atualização Automática (GitHub Actions / Windows)",
+        "📑 Exportar Excel & Backup JSON"
     ])
 
-    # SUBTAB 1: ALERTAS DE RECOLHA
+    # SUBTAB 1: ALERTAS DE RECOLHA REAL
     with tab_alertas:
-        col_al_top1, col_al_top2 = st.columns([3, 1])
+        col_al_top1, col_al_top2 = st.columns([3, 1.2])
         with col_al_top1:
-            st.markdown("##### Feeds Rastreados: Portal BASE, TED Europa, SIAIA / PARTICIPA e Imprensa")
+            st.markdown("##### Notícias Recolhidas que Aguardam Validação Humana (Evidência Parcial)")
+            st.caption("Notícias sem localização ou fase explícita ficam aqui retidas para revisão em vez de criarem obras falsas automaticamente.")
         with col_al_top2:
-            if st.button("🔄 Executar Pesquisa Agora", use_container_width=True):
-                # Simula nova recolha
-                from scrapers import simular_rastreio_alertas
-                novos = simular_rastreio_alertas()
-                conn = get_connection()
-                cur = conn.cursor()
-                for n in novos:
-                    cur.execute("""
-                        INSERT INTO alertas_recolha (fonte_tipo, fonte_nome, titulo, link, data_publicacao, entidade_promotora, resumo_bruto, segmento_estimado, regiao_estimada, processado)
-                        VALUES (:fonte_tipo, :fonte_nome, :titulo, :link, :data_publicacao, :entidade_promotora, :resumo_bruto, :segmento_estimado, :regiao_estimada, 0)
-                    """, n)
-                conn.commit()
-                conn.close()
-                st.success("Novos alertas obtidos das fontes públicas!")
-                st.rerun()
+            if st.button("🔄 Atualizar Agora (Sincronização Real)", use_container_width=True, key="btn_sync_motor"):
+                with st.spinner("A consultar conectores públicos em tempo real..."):
+                    rel_sync = executar_sincronizacao_radar(forcar=True, modo="MANUAL")
+                    st.session_state["ultimo_relatorio_ui"] = rel_sync
+                    st.session_state["acabou_de_sincronizar"] = True
 
-        alertas = listar_alertas(apenas_nao_processados=True)
-        st.write(f"Alertas pendentes de aprovação comercial: **{len(alertas)}**")
+        rel_motor = st.session_state.get("ultimo_relatorio_ui") or obter_ultimo_relatorio_sincronizacao()
+        if rel_motor:
+            renderizar_relatorio_sincronizacao(rel_motor)
+
+        mostrar_alertas_demo = st.checkbox("Incluir alertas iniciais de demonstração", value=False)
+        alertas = listar_alertas(apenas_nao_processados=True, incluir_demo=mostrar_alertas_demo)
+        st.write(f"Alertas pendentes de validação comercial: **{len(alertas)}**")
 
         for al in alertas:
             with st.container(border=True):
                 c_a1, c_a2 = st.columns([3.5, 1])
                 with c_a1:
-                    st.markdown(f"#### 📢 {al['titulo']}")
-                    st.caption(f"Fonte: **{al['fonte_nome']}** ({al['fonte_tipo']}) | Publicado em: {al['data_publicacao']}")
-                    st.markdown(f"**Promotor:** {al['entidade_promotora']} | **Segmento:** `{al['segmento_estimado']}` | **Região:** `{al['regiao_estimada']}`")
+                    badge_al = "🟠 `[DEMO]` " if al.get("origem_registo") == "DEMO" else "🟢 `[FONTE REAL]` "
+                    st.markdown(f"#### {badge_al}📢 {al['titulo']}")
+                    st.caption(
+                        f"Fonte: **{al['fonte_nome']}** ({al['fonte_tipo']}) | "
+                        f"Publicado em: `{al.get('data_publicacao') or 'Sem data na fonte'}` | "
+                        f"Consultado em: `{al.get('data_consulta') or al.get('created_at')}`"
+                    )
+                    st.markdown(
+                        f"**Promotor Detetado:** `{al.get('entidade_promotora') or 'Por verificar'}` | "
+                        f"**Segmento Estimado:** `{al['segmento_estimado']}` | **Região:** `{al['regiao_estimada']}`"
+                    )
+                    if al.get("motivo_validacao"):
+                        st.warning(f"🔎 **Motivo de retenção para validação:** {al['motivo_validacao']}")
                     st.write(al['resumo_bruto'])
                     if al['link']:
-                        st.markdown(f"[Ver Anúncio Oficial Original]({al['link']})")
+                        st.markdown(f"[🔗 Abrir Notícia / Anúncio Original na Fonte]({al['link']})")
                 with c_a2:
-                    if st.button("Aprovar e Criar Obra ➕", key=f"btn_aprov_{al['id']}", use_container_width=True):
-                        # Analisar e converter em obra
-                        dados_extraidos = analisar_texto_obra(al['titulo'] + ". " + al['resumo_bruto'], fonte_nome=al['fonte_nome'], fonte_url=al['link'])
+                    if st.button("Validar e Criar Obra ➕", key=f"btn_aprov_{al['id']}", use_container_width=True):
+                        dados_extraidos = analisar_texto_obra(
+                            al['titulo'] + ". " + (al['resumo_bruto'] or ""),
+                            fonte_nome=al['fonte_nome'],
+                            fonte_url=al['link'],
+                            data_publicacao=al.get('data_publicacao')
+                        )
 
                         nova_obra_dict = {
                             "titulo": dados_extraidos["titulo"],
-                            "codigo_ref": f"PEMSA-AUTO-{al['id']}",
+                            "codigo_ref": f"PEMSA-VAL-{al['id']}-{int(datetime.now().timestamp())%10000}",
                             "segmento": dados_extraidos["segmento"],
                             "regiao": dados_extraidos["regiao"],
                             "distrito": dados_extraidos["distrito"],
-                            "concelho": dados_extraidos["distrito"],
-                            "morada_localizacao": f"{dados_extraidos['distrito']}, Portugal",
-                            "lat": 41.15 if dados_extraidos["regiao"] == "Norte" else 38.72,
-                            "lon": -8.61 if dados_extraidos["regiao"] == "Norte" else -9.14,
+                            "concelho": dados_extraidos["concelho"],
+                            "morada_localizacao": f"{dados_extraidos['concelho']}, {dados_extraidos['distrito']}",
+                            "lat": None,
+                            "lon": None,
                             "fase": dados_extraidos["fase"],
-                            "status_comercial": "Nova Oportunidade",
+                            "status_comercial": "Em Qualificação",
                             "score": dados_extraidos["score"],
                             "score_breakdown": json.dumps(dados_extraidos["score_breakdown"], ensure_ascii=False),
                             "prioridade": dados_extraidos["prioridade"],
-                            "valor_estimado": "Sob Avaliação",
-                            "prazo_previsto": "2026 - 2027",
+                            "valor_estimado": dados_extraidos.get("valor_estimado") or "Por verificar",
+                            "prazo_previsto": "Por verificar",
                             "data_detecao": date.today().isoformat(),
+                            "data_publicacao_fonte": al.get("data_publicacao"),
+                            "data_consulta_fonte": al.get("data_consulta") or datetime.now().isoformat(timespec="seconds"),
                             "fonte_tipo": al["fonte_tipo"],
                             "fonte_nome": al["fonte_nome"],
                             "fonte_url": al["link"],
                             "resumo": dados_extraidos["resumo"],
                             "timing_fornecimento": dados_extraidos["timing_fornecimento"],
                             "proxima_acao": dados_extraidos["proxima_acao"],
-                            "notas_comerciais": "Importado automaticamente do feed de alertas públicos.",
-                            "responsavel_nome": dados_extraidos.get("responsavel_nome"),
-                            "responsavel_cargo": dados_extraidos.get("responsavel_cargo"),
-                            "responsavel_empresa": dados_extraidos.get("responsavel_empresa"),
-                            "responsavel_contacto": dados_extraidos.get("responsavel_contacto")
+                            "notas_comerciais": "Promovido manualmente a partir dos Alertas de Recolha após validação.",
+                            "responsavel_nome": dados_extraidos.get("responsavel_nome") or "Por verificar",
+                            "responsavel_cargo": dados_extraidos.get("responsavel_cargo") or "Por verificar",
+                            "responsavel_empresa": dados_extraidos.get("responsavel_empresa") or "Por verificar",
+                            "responsavel_contacto": dados_extraidos.get("responsavel_contacto") or "Por verificar",
+                            "estado_verificacao": dados_extraidos.get("estado_verificacao") or "Por verificar",
+                            "origem_registo": "REAL"
                         }
 
-                        # Inserir
                         nova_id = inserir_obra(nova_obra_dict, produtos_pemsa=dados_extraidos["produtos_sugeridos"])
                         marcar_alerta_processado(al['id'], obra_id=nova_id)
-                        st.success(f"Obra adicionada com sucesso ao Radar! (ID: {nova_id})")
+                        st.success(f"Obra validada e adicionada ao Radar! (ID: {nova_id})")
                         st.rerun()
 
                     if st.button("Descartar ❌", key=f"btn_desc_{al['id']}", use_container_width=True):
                         marcar_alerta_processado(al['id'], obra_id=None)
                         st.rerun()
 
-    # SUBTAB 2: MATRIZ ESTRATÉGICA DAS FONTES (SIAIA, BASE, TED, NOTÍCIAS)
+    # SUBTAB 2: AUDITORIA DE REGISTOS SUSPEITOS / DEMONSTRAÇÃO
+    with tab_auditoria:
+        st.markdown("##### 🛡️ Relatório de Registos de Demonstração (`DEMO`) e Dados por Verificar")
+        st.caption(
+            "Nenhum registo existente foi apagado automaticamente para preservar as suas tarefas e notas comerciais. "
+            "Aqui pode rever todos os registos pré-populados de demonstração e limpar atribuições não verificadas."
+        )
+        registos_susp = listar_registos_suspeitos()
+        st.write(f"Total de registos sinalizados para revisão: **{len(registos_susp)}**")
+
+        for rs in registos_susp:
+            with st.container(border=True):
+                c_rs1, c_rs2 = st.columns([3.5, 1.2])
+                with c_rs1:
+                    st.markdown(f"#### [{rs['codigo_ref']}] {rs['titulo']}")
+                    st.markdown(renderizar_badges_integridade(rs), unsafe_allow_html=True)
+                    st.write(
+                        f"**Intervenientes atuais:** `{rs.get('responsavel_empresa')}`  \n"
+                        f"**Contacto atual:** `{rs.get('responsavel_contacto')}`  \n"
+                        f"**URL Fonte atual:** `{rs.get('fonte_url')}`"
+                    )
+                    if rs.get("notas_comerciais"):
+                        st.caption(f"📝 Notas comerciais preservadas: {rs['notas_comerciais']}")
+                with c_rs2:
+                    if st.button("🧹 Limpar atribuições não verificadas", key=f"aud_clean_{rs['id']}", use_container_width=True):
+                        limpar_atribuicoes_nao_verificadas_obra(rs['id'])
+                        st.success(f"Registo {rs['codigo_ref']} limpo para 'Por verificar'!")
+                        st.rerun()
+                    if st.button("Abrir na Ficha 📄", key=f"aud_open_{rs['id']}", use_container_width=True):
+                        st.session_state["obra_selecionada_id"] = rs['id']
+                        st.info("Selecione o menu '4. Ficha da Obra' na barra lateral.")
+
+    # SUBTAB 3: MATRIZ ESTRATÉGICA DAS FONTES
     with tab_estrategia:
-        st.markdown("##### 🎯 Matriz Estratégica das 5 Fontes de Informação PÉMSA")
-        st.caption("Como combinar fontes oficiais, ambientais e privadas para descobrir obras antes dos concorrentes.")
-
-        # Os 3 momentos da venda PÉMSA
-        st.markdown("""
-        <div style="background:linear-gradient(90deg, #F8FAFC 0%, #EFF6FF 100%); border-left:4px solid #CC2229; padding:12px 16px; border-radius:6px; margin-bottom:16px;">
-            <b style="color:#CC2229; font-size:1.05rem;">A Regra de Ouro PÉMSA: Não depender apenas de notícias nem de obras já adjudicadas.</b><br>
-            <span style="color:#334155; font-size:0.92rem;">
-            Se esperarmos pelo <b>Portal BASE</b>, a obra já foi adjudicada e as marcas de caminhos de cabos já foram orçamentadas pelo empreiteiro.<br>
-            A grande vitória comercial da PÉMSA é antecipar a abordagem através do <b>SIAIA / PARTICIPA</b> (quando os projetos ainda estão em fase de avaliação ambiental e engenharia) e acompanhar até à contratação final.
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown("##### 🎯 Matriz Estratégica das Fontes de Informação PÉMSA")
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             with st.container(border=True):
                 st.markdown("#### 1. 🌿 SIAIA (APA) & PARTICIPA")
-                st.markdown("*(Agência Portuguesa do Ambiente · siaia.apambiente.pt / participa.pt)*")
-                st.markdown("""
-                - **Momento Temporal:** **6 a 18 meses ANTES da obra física.**
-                - **Tipo de Obra:** Centros de dados (Data Centers), parques industriais, centrais solares com subestações, logística pesada, hospitais.
-                - **Documentos Chave:** Resumo Não Técnico (RNT) e Estudos de Impacte Ambiental (AIA).
-                - **Interveniente Identificado:** Promotor + Gabinete de Engenharia Projetista (ex: Afaconsult, Quadrante, Proman, Engexpor).
-                - **Missão Comercial PÉMSA:** **Prescrição Técnica.** Contactar o projetista MEP para especificar *Rejiband Rapide* (varão) e *Pemsaband* (chapa) no Caderno de Encargos com suporte BIM e ensaios de fogo E90.
-                """)
-
+                st.markdown("- **Momento:** 6 a 18 meses antes da obra física.\n- **Objetivo:** Prescrição técnica junto do projetista MEP.")
             with st.container(border=True):
                 st.markdown("#### 2. 🇪🇺 TED — Tenders Electronic Daily")
-                st.markdown("*(União Europeia · ted.europa.eu)*")
-                st.markdown("""
-                - **Momento Temporal:** **15 a 45 dias antes do encerramento de propostas.**
-                - **Tipo de Obra:** Empreitadas públicas de grande valor (> 5,5M€) em Portugal.
-                - **Documentos Chave:** Anúncio de concurso público e Caderno de Encargos de instalações elétricas (CPV `45310000`).
-                - **Interveniente Identificado:** Entidade Adjudicante + Concorrentes habilitados.
-                - **Missão Comercial PÉMSA:** **Cotação em Concurso.** Fornecer cotações rápidas e competitivas aos orçamentistas dos instaladores que vão a concurso, garantindo que concorrem com solução PÉMSA via distribuidores.
-                """)
-
-            with st.container(border=True):
-                st.markdown("#### 3. 🏛️ Portal BASE")
-                st.markdown("*(Contratos Públicos · base.gov.pt)*")
-                st.markdown("""
-                - **Momento Temporal:** **No dia da adjudicação (0 a 2 meses antes do início de trabalhos).**
-                - **Tipo de Obra:** Todas as empreitadas públicas adjudicadas pelo Estado, Câmaras e ULS.
-                - **Documentos Chave:** Contrato formal, valor adjudicado, prazo de execução e consórcios.
-                - **Interveniente Identificado:** Empreiteiro Geral Vencedor e Instalador Subcontratado.
-                - **Missão Comercial PÉMSA:** **Fecho de Fornecimento.** Contactar o Diretor de Obra e o instalador elétrico para canalizar os pedidos através dos distribuidores autorizados PÉMSA (Rexel, Sonepar, etc.).
-                """)
-
+                st.markdown("- **Momento:** Fase de Concurso Público internacional.\n- **Objetivo:** Orçamentação com empreiteiros e instaladores.")
         with col_f2:
             with st.container(border=True):
-                st.markdown("#### 4. 📰 Imprensa Económica & Setorial")
-                st.markdown("*(Jornal de Negócios, Jornal Económico, ECO, Construir)*")
-                st.markdown("""
-                - **Momento Temporal:** **Fase de Anúncio / Estudo Prévio de Investimento Privado.**
-                - **Tipo de Obra:** **Obras 100% Privadas** (novas fábricas, expansões industriais, plataformas logísticas e hotéis que NÃO aparecem no BASE nem no TED).
-                - **Documentos Chave:** Notícias de investimento, conferências e comunicados de promotores.
-                - **Interveniente Identificado:** Promotor / Grupo Internacional / Autarquia de acolhimento.
-                - **Missão Comercial PÉMSA:** **Deteção Precoce.** Descobrir qual o gabinete de arquitetura/engenharia responsável pelo licenciamento e iniciar o contacto de pré-prescrição.
-                """)
-
+                st.markdown("#### 3. 🏛️ Portal BASE & Diário da República")
+                st.markdown("- **Momento:** Anúncio de procedimento e adjudicação.\n- **Objetivo:** Abordagem direta ao adjudicatário confirmado.")
             with st.container(border=True):
-                st.markdown("#### 5. 🏢 Páginas Oficiais das Empresas & Decisores")
-                st.markdown("*(Promotores, Gabinetes de Engenharia, Instaladores Elétricos)*")
-                st.markdown("""
-                - **Momento Temporal:** **Contínuo / Enriquecimento de Dados.**
-                - **Tipo de Obra:** Acompanhamento do portfólio de engenharia e obras em carteira.
-                - **Documentos Chave:** Portfólios de referências, organigramas e comunicados de imprensa.
-                - **Interveniente Identificado:** Diretores de Instalações, Coordenadores MEP, Responsáveis de Compras.
-                - **Missão Comercial PÉMSA:** **Qualificação de Contactos.** Validar nomes e cargos técnicos (cruzando com LinkedIn) para transformar o radar numa ação comercial prática (telefonema / reunião / visita).
-                """)
+                st.markdown("#### 4. 📰 Imprensa Económica (RSS Verificado)")
+                st.markdown("- **Momento:** Anúncio de investimento privado (fábricas, logística, data centers).\n- **Objetivo:** Qualificação inicial e validação de promotores.")
 
-            with st.container(border=True):
-                st.markdown("#### 🔍 Gerador de Pesquisas Booleanas Automáticas")
-                st.caption("Gere filtros prontos para Google Notícias, RSS ou alertas automáticos:")
-                
-                seg_sel = st.selectbox("Selecione o Segmento:", ["Data Center", "Industrial / Fábricas", "Logística / Armazéns", "Hospital / Saúde", "Energia / Renováveis"])
-                reg_sel = st.selectbox("Selecione a Região:", ["Portugal Global", "Norte (Porto, Braga, Famalicão)", "Centro (Aveiro, Coimbra, Leiria)", "Sul (Lisboa, Sines, Setúbal)"])
-
-                if seg_sel == "Data Center":
-                    termos_seg = '("data center" OR "centro de dados" OR "campus de dados")'
-                elif seg_sel == "Industrial / Fábricas":
-                    termos_seg = '("nova fábrica" OR "ampliação industrial" OR "unidade de produção" OR "nova nave industrial")'
-                elif seg_sel == "Logística / Armazéns":
-                    termos_seg = '("parque logístico" OR "plataforma logística" OR "armazém" OR "centro de distribuição")'
-                elif seg_sel == "Hospital / Saúde":
-                    termos_seg = '("novo hospital" OR "centro hospitalar" OR "unidade de saúde" OR "ampliação hospitalar")'
-                else:
-                    termos_seg = '("central solar" OR "parque solar" OR "subestação elétrica" OR "armazenamento de baterias")'
-
-                if "Norte" in reg_sel:
-                    termos_reg = 'AND (Porto OR Braga OR Famalicão OR Guimarães OR "Santo Tirso" OR "Vila Real")'
-                elif "Centro" in reg_sel:
-                    termos_reg = 'AND (Aveiro OR Coimbra OR Leiria OR Viseu OR "Castanheira do Ribatejo" OR Azambuja)'
-                elif "Sul" in reg_sel:
-                    termos_reg = 'AND (Lisboa OR Sines OR Palmela OR Setúbal OR Oeiras OR Loures OR Évora)'
-                else:
-                    termos_reg = 'AND (Portugal OR Norte OR Centro OR Alentejo OR Algarve)'
-
-                query_final = f'{termos_seg} {termos_reg}'
-                st.code(query_final, language="text")
-                st.caption("Copie esta linha para configurar alertas no Google Notícias, Feedly ou alimentar o motor do Radar.")
-
-    # SUBTAB 3: ANALISAR COM IA
+    # SUBTAB 4: ANALISAR COM IA / REGRAS BASEADAS EM EVIDÊNCIA
     with tab_ia:
-        st.markdown("##### 🤖 Importação Rápida Assistida por IA")
-        st.caption("Cole aqui o texto de uma notícia, edital do Portal BASE ou anúncio de obra. O motor extrai entidades, empresas, produtos PÉMSA compatíveis e calcula a pontuação comercial.")
+        st.markdown("##### 🤖 Extração Baseada em Evidência (Sem Invenção de Contactos)")
+        st.caption("Cole o texto de um anúncio oficial ou notícia. Campos não comprovados pelo texto serão marcados como 'Por verificar'.")
 
         texto_input = st.text_area(
             "Cole o texto da notícia ou anúncio de concurso:",
-            height=160,
-            value="Construção do novo Parque de Logística e Armazenagem no Carregado com 30.000 m2. Promovido pelo Grupo Lusitânia Logística, o projeto de instalações elétricas MEP foi adjudicado ao gabinete Quadrante Engenharia e a empreitada geral à Casais Engenharia. Obra em fase de projeto de execução com consulta aberta para subempreitada elétrica."
+            height=150,
+            value="Município de Vila Nova de Gaia lança concurso público para a empreitada de construção do novo Centro de Saúde no valor de 2,4 milhões de euros."
         )
+        url_input = st.text_input("URL específico da fonte (opcional):", "")
 
-        if st.button("🔍 Analisar e Extrair Inteligência Comercial", use_container_width=True):
-            analise = analisar_texto_obra(texto_input)
+        if st.button("🔍 Analisar Evidência do Texto", use_container_width=True):
+            analise = analisar_texto_obra(texto_input, fonte_nome="Análise Manual de Fonte", fonte_url=url_input)
             st.session_state["ultima_analise_ia"] = analise
 
         if "ultima_analise_ia" in st.session_state:
             res_ia = st.session_state["ultima_analise_ia"]
-            st.success("Análise concluída com sucesso!")
+            if res_ia.get("evidencia_suficiente_obra"):
+                st.success(f"✅ Evidência suficiente para Obra: {res_ia.get('motivo_evidencia')}")
+            else:
+                st.warning(f"⚠️ Evidência parcial ({res_ia.get('motivo_evidencia')}) — Recomenda-se guardar como Alerta ou completar os campos 'Por verificar'.")
 
             with st.container(border=True):
                 col_r1, col_r2 = st.columns([3, 1])
                 with col_r1:
                     st.markdown(f"### 📍 {res_ia['titulo']}")
-                    st.write(f"**Segmento:** `{res_ia['segmento']}` | **Região:** `{res_ia['regiao']}` ({res_ia['distrito']}) | **Fase:** `{res_ia['fase']}`")
-                    
-                    # Mostrar prioridade e intervenientes detetados
+                    st.write(
+                        f"**Segmento:** `{res_ia['segmento']}` | **Localização:** `{res_ia['concelho']}, {res_ia['distrito']} ({res_ia['regiao']})` | "
+                        f"**Fase:** `{res_ia['fase']}` | **Valor:** `{res_ia['valor_estimado']}`"
+                    )
                     st.markdown(f"""
                     <div style="background:#F8FAFC; border-left:3px solid #CC2229; padding:8px 12px; margin:6px 0; border-radius:4px;">
-                        <b>🎯 Prioridade:</b> {res_ia.get('responsavel_nome')} — <i>{res_ia.get('responsavel_cargo')}</i><br>
-                        <b>🏗️ Projetista / Construtor / Instalador:</b> {res_ia.get('responsavel_empresa')}
+                        <b>🎯 Estado de Verificação:</b> {res_ia.get('estado_verificacao')}<br>
+                        <b>👤 Contacto Citado:</b> {res_ia.get('responsavel_nome')}<br>
+                        <b>🏗️ Entidades Citadas na Fonte:</b> {res_ia.get('responsavel_empresa')}
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    st.write(f"**Timing:** {res_ia['timing_fornecimento']}")
                     st.info(f"👉 **Próxima Ação Sugerida:** {res_ia['proxima_acao']}")
-
-                    st.markdown("**Produtos PÉMSA Detetados:**")
-                    for p in res_ia['produtos_sugeridos']:
-                        st.write(f"• **{p['familia_produto']}** ({p['nivel_potencial']}) — *{p['especificacao_detalhe']}*")
 
                 with col_r2:
                     st.metric("Pontuação Estimada", f"{res_ia['score']}/100", f"Prioridade {res_ia['prioridade']}")
-
                     if st.button("💾 Gravar no Radar de Obras", key="btn_save_ia_obra", use_container_width=True):
                         nova_obra_dict = {
                             "titulo": res_ia["titulo"],
-                            "codigo_ref": f"PEMSA-IA-{datetime.now().strftime('%m%d%H%M')}",
+                            "codigo_ref": f"PEMSA-MAN-{datetime.now().strftime('%m%d%H%M%S')}",
                             "segmento": res_ia["segmento"],
                             "regiao": res_ia["regiao"],
                             "distrito": res_ia["distrito"],
-                            "concelho": res_ia["distrito"],
-                            "morada_localizacao": f"{res_ia['distrito']}, Portugal",
-                            "lat": 41.15 if res_ia["regiao"] == "Norte" else 38.72,
-                            "lon": -8.61 if res_ia["regiao"] == "Norte" else -9.14,
+                            "concelho": res_ia["concelho"],
+                            "morada_localizacao": f"{res_ia['concelho']}, {res_ia['distrito']}",
+                            "lat": None,
+                            "lon": None,
                             "fase": res_ia["fase"],
                             "status_comercial": "Nova Oportunidade",
                             "score": res_ia["score"],
                             "score_breakdown": json.dumps(res_ia["score_breakdown"], ensure_ascii=False),
                             "prioridade": res_ia["prioridade"],
-                            "valor_estimado": "Sob Consulta",
-                            "prazo_previsto": "2026 - 2027",
+                            "valor_estimado": res_ia["valor_estimado"],
+                            "prazo_previsto": "Por verificar",
                             "data_detecao": date.today().isoformat(),
-                            "fonte_tipo": "Extração Assistida IA",
-                            "fonte_nome": "Notícia / Documento Colado",
-                            "fonte_url": "",
+                            "data_publicacao_fonte": res_ia.get("data_publicacao"),
+                            "data_consulta_fonte": res_ia.get("data_consulta"),
+                            "fonte_tipo": "Inserção Verificada",
+                            "fonte_nome": res_ia["fonte_nome"],
+                            "fonte_url": res_ia["fonte_url"],
                             "resumo": res_ia["resumo"],
                             "timing_fornecimento": res_ia["timing_fornecimento"],
                             "proxima_acao": res_ia["proxima_acao"],
-                            "notas_comerciais": "Importado via assistente IA.",
+                            "notas_comerciais": None,
                             "responsavel_nome": res_ia.get("responsavel_nome"),
                             "responsavel_cargo": res_ia.get("responsavel_cargo"),
                             "responsavel_empresa": res_ia.get("responsavel_empresa"),
-                            "responsavel_contacto": res_ia.get("responsavel_contacto")
+                            "responsavel_contacto": res_ia.get("responsavel_contacto"),
+                            "estado_verificacao": res_ia.get("estado_verificacao"),
+                            "origem_registo": "REAL"
                         }
                         nova_id = inserir_obra(nova_obra_dict, produtos_pemsa=res_ia["produtos_sugeridos"])
                         st.success(f"Obra gravada no Radar com ID {nova_id}!")
                         st.rerun()
 
-    # SUBTAB 3: FREQUÊNCIA DE ATUALIZAÇÃO & AUTOMAÇÃO
+    # SUBTAB 5: ATUALIZAÇÃO AUTOMÁTICA INDEPENDENTE DO BROWSER
     with tab_freq:
-        st.markdown("##### ⏰ De quanto em quanto tempo o Radar atualiza com novas obras?")
-        st.caption("Estratégia de sincronização e periodicidade recomendada para o mercado da construção em Portugal.")
+        st.markdown("##### ⏰ Sincronização Automática Independente do Browser")
+        st.markdown("""
+        O Radar PÉMSA possui um motor autónomo (`atualizar_radar.py`) que executa sem depender de ninguém ter o browser aberto:
+        1. **GitHub Actions (Nuvem — Diário às 07:00 UTC):** Ficheiro `.github/workflows/sync_radar.yml` configurado para correr automaticamente todos os dias, consultar as fontes públicas e atualizar a base de dados do repositório.
+        2. **Agendador de Tarefas do Windows (PC Local):**
+           ```powershell
+           schtasks /Create /SC DAILY /TN "RadarPEMSA_Sync" /TR "python C:\\Users\\PauloAlmeida\\.gemini\\antigravity\\scratch\\radar_pemsa\\atualizar_radar.py" /ST 08:00 /F
+           ```
+        3. **Execução Manual em Linha de Comandos:**
+           ```powershell
+           python atualizar_radar.py
+           ```
+        """)
 
-        with st.container(border=True):
-            col_fq1, col_fq2 = st.columns([2, 1])
-            with col_fq1:
-                st.markdown("### 📅 Periodicidade Recomendada: **Semanal (Segundas às 08:00)**")
-                st.markdown("""
-                No mercado de construção em Portugal, as empreitadas públicas e privadas não mudam minuto a minuto:
-                - **Portal BASE & Concursos**: Os anúncios têm prazos legais de candidatura de **15 a 45 dias**.
-                - **Projetos de Execução / MEP**: A fase de especificação das engenharias dura semanas ou meses.
-                - **Grandes Investimentos**: Notícias de novos parques e fábricas surgem em blocos semanais.
-                
-                **Porquê Segunda-feira de manhã?**
-                Permite à equipa comercial começar a semana com o painel renovado:
-                - Novas obras detetadas no fim de semana e na semana anterior;
-                - Mapeamento imediato de quem contactar nos próximos 5 dias úteis;
-                - Seguimento prioritário antes dos instaladores fecharem as compras de material elétrico.
-                """)
-            with col_fq2:
-                st.markdown("#### ⚙️ Configuração Ativa")
-                freq_escolhida = st.radio(
-                    "Selecione o Ritmo de Sincronização:",
-                    [
-                        "Semanal (Segunda-feira às 08:00) — Recomendado",
-                        "Diária (Dias úteis às 07:30)",
-                        "Manual (Apenas quando solicito pesquisa)"
-                    ],
-                    index=0
-                )
-                st.success(f"Configuração guardada: `{freq_escolhida.split('—')[0].strip()}`")
-                st.caption(f"Última verificação: **{date.today().isoformat()} às 08:00**")
-
-        st.markdown("---")
-        st.markdown("#### 🔄 Modos de Atualização Disponíveis:")
-        c_m1, c_m2, c_m3 = st.columns(3)
-        with c_m1:
-            st.markdown("##### 1. Sob Demanda (Instantâneo)")
-            st.write("Basta carregar no botão **'🔄 Executar Pesquisa Agora'** na aba de alertas para importar e analisar imediatamente novas fontes.")
-        with c_m2:
-            st.markdown("##### 2. Diária Automática")
-            st.write("Rastreia todas as manhãs às 07:30 os novos contratos de empreitada publicados no Diário da República e no Portal BASE no dia útil anterior.")
-        with c_m3:
-            st.markdown("##### 3. Semanal Consolidada")
-            st.write("Consolida todas as notícias económicas, atas de licenciamento municipal e editais para gerar o resumo de oportunidades de segunda-feira.")
-
-    # SUBTAB 4: EXPORTAÇÃO EXCEL
+    # SUBTAB 6: EXPORTAÇÃO EXCEL & BACKUP JSON
     with tab_excel:
-        st.markdown("##### 📑 Exportação de Relatório Comercial Completo")
-        st.write("Exporte todas as oportunidades qualificadas, scores, empresas e contactos para uma folha de cálculo Excel (.xlsx).")
-
-        obras_exp = listar_obras()
+        st.markdown("##### 📑 Exportação de Relatório Excel (.xlsx) e Backup de Persistência (.json)")
+        obras_exp = listar_obras(incluir_demo=incluir_demo_global)
         if obras_exp:
             df_exp = pd.DataFrame(obras_exp)
             output = io.BytesIO()
@@ -1232,6 +1313,14 @@ elif "7. Motor de Recolha" in menu_opcao:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-            st.success("Ficheiro Excel preparado com sucesso!")
-        else:
-            st.info("Sem dados para exportar.")
+
+        st.markdown("---")
+        st.markdown("##### 💾 Backup Completo da Base de Dados (Proteção para Ambientes Cloud Efémeros)")
+        backup_str = exportar_backup_json()
+        st.download_button(
+            label="📦 Descarregar Backup Integral (JSON — Obras, Tarefas, Notas e Histórico)",
+            data=backup_str.encode("utf-8"),
+            file_name=f"backup_radar_pemsa_{date.today().isoformat()}.json",
+            mime="application/json",
+            use_container_width=True
+        )

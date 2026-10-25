@@ -1,13 +1,15 @@
 """
-scrapers.py - Motor de recolha, conectores de dados públicos e interpretador inteligente.
-Simula e integra feeds do Portal BASE, TED e notícias de obras em Portugal.
+scrapers.py - Motor de recolha, conectores de dados públicos e qualificação baseada em evidência.
+Integra feeds reais de notícias económicas/setoriais (RSS), TED Europa (API pública) e portais públicos,
+validando respostas HTTP, timeouts, datas reais de publicação e nível de evidência.
 """
 
 import re
-import json
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime, date
+from email.utils import parsedate_to_datetime
 import requests
 import urllib3
 from pemsa_catalog import avaliar_compatibilidade_pemsa
@@ -20,197 +22,458 @@ REGIOES_PORTUGAL = {
     "Norte": ["Viana do Castelo", "Braga", "Porto", "Vila Real", "Bragança"],
     "Centro": ["Aveiro", "Viseu", "Guarda", "Coimbra", "Castelo Branco", "Leiria"],
     "Sul": ["Lisboa", "Santarém", "Setúbal", "Portalegre", "Évora", "Beja", "Faro"],
-    "Madeira": ["Madeira", "Funchal"],
-    "Açores": ["Açores", "Ponta Delgada", "Angra do Heroísmo"]
+    "Madeira": ["Madeira", "Funchal", "Porto Santo"],
+    "Açores": ["Açores", "Ponta Delgada", "Angra do Heroísmo", "Horta"]
 }
 
-def identificar_regiao_distrito(texto):
-    """Identifica distrito e região de Portugal a partir do texto."""
+CONCELHOS_MAPA = {
+    "famalicão": ("Norte", "Braga", "Vila Nova de Famalicão"),
+    "vila nova de famalicão": ("Norte", "Braga", "Vila Nova de Famalicão"),
+    "guimarães": ("Norte", "Braga", "Guimarães"),
+    "barcelos": ("Norte", "Braga", "Barcelos"),
+    "braga": ("Norte", "Braga", "Braga"),
+    "maia": ("Norte", "Porto", "Maia"),
+    "matosinhos": ("Norte", "Porto", "Matosinhos"),
+    "vila nova de gaia": ("Norte", "Porto", "Vila Nova de Gaia"),
+    "gaia": ("Norte", "Porto", "Vila Nova de Gaia"),
+    "santo tirso": ("Norte", "Porto", "Santo Tirso"),
+    "trofa": ("Norte", "Porto", "Trofa"),
+    "felgueiras": ("Norte", "Porto", "Felgueiras"),
+    "penafiel": ("Norte", "Porto", "Penafiel"),
+    "paços de ferreira": ("Norte", "Porto", "Paços de Ferreira"),
+    "valongo": ("Norte", "Porto", "Valongo"),
+    "porto": ("Norte", "Porto", "Porto"),
+    "viana do castelo": ("Norte", "Viana do Castelo", "Viana do Castelo"),
+    "vila real": ("Norte", "Vila Real", "Vila Real"),
+    "bragança": ("Norte", "Bragança", "Bragança"),
+    "aveiro": ("Centro", "Aveiro", "Aveiro"),
+    "ílhavo": ("Centro", "Aveiro", "Ílhavo"),
+    "águeda": ("Centro", "Aveiro", "Águeda"),
+    "santa maria da feira": ("Centro", "Aveiro", "Santa Maria da Feira"),
+    "oliveira de azeméis": ("Centro", "Aveiro", "Oliveira de Azeméis"),
+    "coimbra": ("Centro", "Coimbra", "Coimbra"),
+    "figueira da foz": ("Centro", "Coimbra", "Figueira da Foz"),
+    "leiria": ("Centro", "Leiria", "Leiria"),
+    "pombal": ("Centro", "Leiria", "Pombal"),
+    "alcobaça": ("Centro", "Leiria", "Alcobaça"),
+    "viseu": ("Centro", "Viseu", "Viseu"),
+    "tondela": ("Centro", "Viseu", "Tondela"),
+    "guarda": ("Centro", "Guarda", "Guarda"),
+    "castelo branco": ("Centro", "Castelo Branco", "Castelo Branco"),
+    "fundão": ("Centro", "Castelo Branco", "Fundão"),
+    "covilhã": ("Centro", "Castelo Branco", "Covilhã"),
+    "lisboa": ("Sul", "Lisboa", "Lisboa"),
+    "sintra": ("Sul", "Lisboa", "Sintra"),
+    "cascais": ("Sul", "Lisboa", "Cascais"),
+    "oeiras": ("Sul", "Lisboa", "Oeiras"),
+    "loures": ("Sul", "Lisboa", "Loures"),
+    "amadora": ("Sul", "Lisboa", "Amadora"),
+    "odivelas": ("Sul", "Lisboa", "Odivelas"),
+    "mafra": ("Sul", "Lisboa", "Mafra"),
+    "vila franca de xira": ("Sul", "Lisboa", "Vila Franca de Xira"),
+    "póvoa de santa iria": ("Sul", "Lisboa", "Vila Franca de Xira"),
+    "castanheira do ribatejo": ("Sul", "Lisboa", "Vila Franca de Xira"),
+    "carregado": ("Sul", "Lisboa", "Alenquer"),
+    "alenquer": ("Sul", "Lisboa", "Alenquer"),
+    "azambuja": ("Sul", "Lisboa", "Azambuja"),
+    "santarém": ("Sul", "Santarém", "Santarém"),
+    "coruche": ("Sul", "Santarém", "Coruche"),
+    "benavente": ("Sul", "Santarém", "Benavente"),
+    "entroncamento": ("Sul", "Santarém", "Entroncamento"),
+    "torres novas": ("Sul", "Santarém", "Torres Novas"),
+    "setúbal": ("Sul", "Setúbal", "Setúbal"),
+    "sines": ("Sul", "Setúbal", "Sines"),
+    "palmela": ("Sul", "Setúbal", "Palmela"),
+    "seixal": ("Sul", "Setúbal", "Seixal"),
+    "almada": ("Sul", "Setúbal", "Almada"),
+    "barreiro": ("Sul", "Setúbal", "Barreiro"),
+    "montijo": ("Sul", "Setúbal", "Montijo"),
+    "alcochete": ("Sul", "Setúbal", "Alcochete"),
+    "grândola": ("Sul", "Setúbal", "Grândola"),
+    "comporta": ("Sul", "Setúbal", "Grândola"),
+    "santiago do cacém": ("Sul", "Setúbal", "Santiago do Cacém"),
+    "évora": ("Sul", "Évora", "Évora"),
+    "beja": ("Sul", "Beja", "Beja"),
+    "portalegre": ("Sul", "Portalegre", "Portalegre"),
+    "faro": ("Sul", "Faro", "Faro"),
+    "loulé": ("Sul", "Faro", "Loulé"),
+    "portimão": ("Sul", "Faro", "Portimão"),
+    "lagos": ("Sul", "Faro", "Lagos"),
+    "funchal": ("Madeira", "Madeira", "Funchal"),
+    "madeira": ("Madeira", "Madeira", "Funchal"),
+    "ponta delgada": ("Açores", "Açores", "Ponta Delgada"),
+    "açores": ("Açores", "Açores", "Ponta Delgada"),
+}
+
+
+def identificar_localizacao_portugal(texto):
+    """
+    Identifica (regiao, distrito, concelho, localização_confirmada) a partir do texto.
+    Nunca inventa 'Porto' se nenhuma localização for detetada no texto: devolve localização_confirmada=False.
+    """
+    if not texto:
+        return "Por verificar", "Por verificar", "Por verificar", False
+
     texto_lower = texto.lower()
+    # Ordenar chaves por comprimento decrescente para detetar 'vila nova de famalicão' antes de 'vila'
+    for chave in sorted(CONCELHOS_MAPA.keys(), key=len, reverse=True):
+        padrao = r'\b' + re.escape(chave) + r'\b'
+        if re.search(padrao, texto_lower):
+            reg, dist, conc = CONCELHOS_MAPA[chave]
+            return reg, dist, conc, True
+
     for regiao, distritos in REGIOES_PORTUGAL.items():
         for dist in distritos:
-            if dist.lower() in texto_lower:
-                return regiao, dist
-    # Concelhos comuns
-    concelhos_norte = ["famalicão", "guimarães", "maia", "matosinhos", "gaia", "santo tirso", "trofa", "felgueiras", "penafiel", "paços de ferreira", "barcelos"]
-    concelhos_sul = ["sines", "cascais", "sintra", "oeiras", "loures", "palmela", "seixal", "benavente", "coruche", "póvoa de santa iria", "vila franca de xira", "entroncamento", "santiago do cacém", "alcochete", "montijo"]
-    concelhos_centro = ["azambuja", "castanheira", "ílhavo", "águeda", "mealhada", "pombal", "fundão", "covilhã", "alcobaça", "tondela"]
+            if re.search(r'\b' + re.escape(dist.lower()) + r'\b', texto_lower):
+                return regiao, dist, dist, True
 
-    for c in concelhos_norte:
-        if c in texto_lower:
-            return "Norte", "Porto" if c in ["maia", "matosinhos", "gaia", "santo tirso", "trofa", "felgueiras", "penafiel", "paços de ferreira"] else "Braga"
-    for c in concelhos_sul:
-        if c in texto_lower:
-            if c in ["sines", "palmela", "seixal", "santiago do cacém", "alcochete", "montijo"]:
-                return "Sul", "Setúbal"
-            if c in ["coruche", "benavente", "entroncamento"]:
-                return "Sul", "Santarém"
-            return "Sul", "Lisboa"
-    for c in concelhos_centro:
-        if c in texto_lower:
-            if c in ["fundão", "covilhã"]:
-                return "Centro", "Castelo Branco"
-            if c in ["azambuja", "castanheira"]:
-                return "Centro", "Lisboa"
-            return "Centro", "Aveiro"
+    return "Por verificar", "Por verificar", "Por verificar", False
 
-    return "Norte", "Porto"
+
+def identificar_regiao_distrito(texto):
+    """Compatibilidade com chamadas legadas que esperam (regiao, distrito)."""
+    reg, dist, _, confirmado = identificar_localizacao_portugal(texto)
+    if not confirmado:
+        return "Por verificar", "Por verificar"
+    return reg, dist
+
 
 def identificar_segmento(texto):
     """Deteta o segmento de construção a partir do texto."""
-    t = texto.lower()
-    if any(k in t for k in ["data center", "centro de dados", "campus digital", "sines 4.0"]):
+    t = (texto or "").lower()
+    if any(k in t for k in ["data center", "datacenter", "centro de dados", "campus digital", "sines 4.0"]):
         return "Data Center"
-    if any(k in t for k in ["hospital", "centro hospitalar", "unidade de saúde", "clínica", "cuidados"]):
+    if any(k in t for k in ["hospital", "centro hospitalar", "unidade de saúde", "centro de saúde", "clínica", "urgência"]):
         return "Hospital / Saúde"
-    if any(k in t for k in ["fábrica", "industrial", "indústria", "produção", "ampliação fabril", "unidade fabril"]):
+    if any(k in t for k in ["fábrica", "unidade fabril", "unidade industrial", "ampliação industrial", "nave industrial", "linha de produção"]):
         return "Industrial / Fábricas"
-    if any(k in t for k in ["logística", "parque logístico", "armazém", "plataforma logística", "centro de distribuição"]):
+    if any(k in t for k in ["logística", "parque logístico", "armazém", "plataforma logística", "centro de distribuição", "entreposto"]):
         return "Logística / Armazéns"
-    if any(k in t for k in ["hotel", "resort", "empreendimento turístico", "alojamento turístico"]):
+    if any(k in t for k in ["hotel", "resort", "unidade hoteleira", "empreendimento turístico", "aparthotel"]):
         return "Hotel / Turismo"
-    if any(k in t for k in ["fotovoltaico", "solar", "eólico", "subestação", "hidrogénio", "baterias"]):
+    if any(k in t for k in ["fotovoltaico", "fotovoltaica", "central solar", "parque solar", "parque eólico", "subestação", "hidrogénio", "baterias"]):
         return "Energia / Renováveis"
     return "Edifícios Terciários & Públicos"
 
+
 def identificar_fase(texto):
-    """Estima a fase da obra a partir dos termos técnicos."""
-    t = texto.lower()
-    if any(k in t for k in ["estudo prévio", "licenciamento", "pedido de viabilidade", "projeto de execução", "em fase de projeto"]):
+    """
+    Identifica a fase da obra apenas se houver evidência textual explícita.
+    Caso contrário devolve 'Por verificar'.
+    """
+    t = (texto or "").lower()
+    if any(k in t for k in ["estudo prévio", "licenciamento", "avaliação de impacte ambiental", "consulta pública", "siaia", "participa", "projeto de execução", "em fase de projeto"]):
         return "Projeto de Execução / MEP"
-    if any(k in t for k in ["abertura de concurso", "concurso público", "lançamento de empreitada", "em consulta"]):
+    if any(k in t for k in ["abertura de concurso", "concurso público", "lançamento de empreitada", "lança concurso", "concurso para a empreitada", "em consulta"]):
         return "Concurso de Empreitada"
-    if any(k in t for k in ["adjudicado", "adjudicação da empreitada", "consignação"]):
+    if any(k in t for k in ["adjudicado", "adjudicada", "adjudicação", "consignação da empreitada", "vence concurso", "ganha empreitada"]):
         return "Adjudicação / Pré-Construção"
-    if any(k in t for k in ["primeira pedra", "início das obras", "estaleiro montado", "início de construção"]):
+    if any(k in t for k in ["primeira pedra", "início das obras", "arranque das obras", "estaleiro", "início de construção"]):
         return "Início de Construção"
-    if any(k in t for k in ["em construção", "trabalhos em curso", "fase de betão", "montagem de instalações"]):
+    if any(k in t for k in ["em construção", "trabalhos em curso", "obras em curso", "montagem de instalações"]):
         return "Em Obra (Instalações a decorrer)"
-    return "Projeto de Execução / MEP"
+    return "Por verificar"
 
-def analisar_texto_obra(texto_livre, fonte_nome="Inserção / Pesquisa", fonte_url=""):
+
+def extrair_valor_estimado(texto):
+    """Extrai valor monetário apenas quando explicitamente referido no texto."""
+    if not texto:
+        return None
+    m = re.search(r'(\d+(?:[.,]\d+)?)\s*(milhões|milhão|M€|mil\s*euros)', texto, re.IGNORECASE)
+    if m:
+        num = m.group(1).replace(",", ".")
+        unidade = m.group(2).lower()
+        if "milh" in unidade or "m€" in unidade:
+            return f"{num} M€ (Confirmado por fonte)"
+        return f"{m.group(0).strip()} (Confirmado por fonte)"
+    m_eur = re.search(r'(\d{1,3}(?:\.\d{3})+(?:,\d{2})?)\s*(?:€|euros)', texto, re.IGNORECASE)
+    if m_eur:
+        return f"{m_eur.group(1)} € (Confirmado por fonte)"
+    return None
+
+
+def extrair_codigo_oficial(texto):
+    """Extrai identificador oficial (ex.: n.º de anúncio DR, processo SIAIA/AIA, concurso ou CPV) se existir."""
+    if not texto:
+        return None
+    padroes = [
+        r'(?:Anúncio de procedimento|Procedimento|Concurso Público)\s*n\.º\s*([0-9]+/[0-9]{4})',
+        r'(?:Processo AIA|SIAIA)\s*(?:n\.º)?\s*([0-9]{3,6})',
+        r'\b(202[4-9]/[A-Z0-9\-]+)\b',
+    ]
+    for p in padroes:
+        m = re.search(p, texto, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def normalizar_data_publicacao(raw_date_str):
     """
-    Motor inteligente de IA/Regras que extrai entidades e parâmetros comerciais
-    de um texto de notícia, anúncio do Portal BASE ou edital do TED.
+    Converte datas RFC 2822 (RSS pubDate) ou ISO 8601 para 'YYYY-MM-DD'.
+    Nunca substitui datas inválidas/ausentes pela data de consulta atual (devolve None).
     """
-    # Extrair título inteligente a partir da primeira linha ou frase
-    linhas_texto = [l.strip() for l in texto_livre.split("\n") if l.strip()]
-    primeira_frase = linhas_texto[0].split(".")[0].strip() if linhas_texto else "Nova Oportunidade Detetada"
-    titulo = primeira_frase[:85]
+    if not raw_date_str or not str(raw_date_str).strip():
+        return None
+    s = str(raw_date_str).strip()
+    try:
+        dt = parsedate_to_datetime(s)
+        return dt.date().isoformat()
+    except Exception:
+        pass
+    try:
+        # Tentar ISO 8601 (ex: 2026-10-20T14:30:00Z ou 2026-10-20)
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
+    except Exception:
+        pass
+    m = re.search(r'(\d{4}-\d{2}-\d{2})', s)
+    if m:
+        return m.group(1)
+    return None
 
-    segmento = identificar_segmento(texto_livre)
-    regiao, distrito = identificar_regiao_distrito(texto_livre)
-    fase = identificar_fase(texto_livre)
 
-    # Identificar se há menção a empresas
-    papeis_identificados = []
+def extrair_entidades_verificaveis(texto):
+    """
+    Extrai apenas empresas ou entidades públicas explicitamente sustentadas pelo texto.
+    Nunca inventa nomes de pessoas, emails ou telefones.
+    """
     empresas_sugeridas = []
+    papeis_identificados = []
+    if not texto:
+        return empresas_sugeridas, papeis_identificados
 
-    # Extração de padrões de promotores ou instaladores
-    promotor_match = re.search(r'(?:promovido por|promotor|dono de obra|investimento da|empresa|grupo|proponente)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&]+?)(?:,|\.|\be\b|\bque\b|\bpara\b|\bno\b)', texto_livre)
-    if promotor_match:
-        nome_promotor = promotor_match.group(1).strip()
-        if len(nome_promotor) > 3 and len(nome_promotor) < 50:
-            empresas_sugeridas.append({"nome": nome_promotor, "papel": "Promotor/Dono", "tipo": "Promotor"})
-            papeis_identificados.append("Promotor/Dono")
+    # Entidades públicas / promotores explícitos
+    padroes_promotor = [
+        r'(?:Câmara Municipal d[eao]s?\s+[A-ZÀ-Ú][a-zA-ZÀ-ú\s\-]+?)(?:,|\.|\blança|\badjudica|\bannonce|\binveste|\bque\b|\bpara\b|$)',
+        r'(?:Município d[eao]s?\s+[A-ZÀ-Ú][a-zA-ZÀ-ú\s\-]+?)(?:,|\.|\blança|\badjudica|\binveste|\bque\b|\bpara\b|$)',
+        r'(?:Unidade Local de Saúde d[eao]s?\s+[A-ZÀ-Ú][a-zA-ZÀ-ú\s\-]+?)(?:,|\.|\blança|\badjudica|\bque\b|\bpara\b|$)',
+        r'(?:promovido por|promotor|dono de obra|investimento da|proponente)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&\.\-]+?)(?:,|\.|\be\b|\bque\b|\bpara\b|\bno\b|\bna\b|\bem\b|$)',
+    ]
+    for pat in padroes_promotor:
+        m = re.search(pat, texto)
+        if m:
+            nome = (m.group(1) if m.lastindex else m.group(0)).strip(" ,.")
+            if 3 < len(nome) <= 65:
+                empresas_sugeridas.append({
+                    "nome": nome,
+                    "papel": "Promotor/Dono",
+                    "tipo": "Promotor",
+                    "estado_verificacao": "Confirmado por fonte"
+                })
+                papeis_identificados.append("Promotor/Dono")
+                break
 
-    projetista_match = re.search(r'(?:projeto de|engenharia|projetista|gabinete de engenharia|estudo ambiental a cargo de)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&]+?)(?:,|\.|\be\b|\bpara\b)', texto_livre)
+    projetista_match = re.search(
+        r'(?:projeto de arquitetura e engenharia d[ea]|projetista|gabinete de engenharia|projeto adjudicado a|coordenação técnica d[ea])\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&\.\-]+?)(?:,|\.|\be\b|\bpara\b|\bno\b|$)',
+        texto
+    )
     if projetista_match:
-        nome_proj = projetista_match.group(1).strip()
-        if len(nome_proj) > 3 and len(nome_proj) < 50:
-            empresas_sugeridas.append({"nome": nome_proj, "papel": "Projetista MEP", "tipo": "Projetista MEP"})
+        nome_proj = projetista_match.group(1).strip(" ,.")
+        if 3 < len(nome_proj) <= 65:
+            empresas_sugeridas.append({
+                "nome": nome_proj,
+                "papel": "Projetista MEP",
+                "tipo": "Projetista MEP",
+                "estado_verificacao": "Confirmado por fonte"
+            })
             papeis_identificados.append("Projetista MEP")
 
-    empreiteiro_match = re.search(r'(?:adjudicad[ao] à|empreiteiro|construção a cargo da|consórcio)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&]+?)(?:,|\.|\be\b|\bpor\b)', texto_livre)
+    empreiteiro_match = re.search(
+        r'(?:adjudicad[ao] à|empreitada entregue à|construído pel[ao]|consórcio liderado pel[ao]|construtora)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú0-9\s&\.\-]+?)(?:,|\.|\be\b|\bpor\b|\bpelo\b|\bno\b|$)',
+        texto
+    )
     if empreiteiro_match:
-        nome_emp = empreiteiro_match.group(1).strip()
-        if len(nome_emp) > 3 and len(nome_emp) < 50:
-            empresas_sugeridas.append({"nome": nome_emp, "papel": "Empreiteiro Geral", "tipo": "Empreiteiro Geral"})
+        nome_emp = empreiteiro_match.group(1).strip(" ,.")
+        if 3 < len(nome_emp) <= 65:
+            empresas_sugeridas.append({
+                "nome": nome_emp,
+                "papel": "Empreiteiro Geral",
+                "tipo": "Empreiteiro Geral",
+                "estado_verificacao": "Confirmado por fonte"
+            })
             papeis_identificados.append("Empreiteiro Geral")
 
-    # Avaliar produtos PÉMSA compatíveis
+    return empresas_sugeridas, papeis_identificados
+
+
+def avaliar_evidencia_item(titulo, resumo="", fonte_tipo=""):
+    """
+    Avalia rigorosamente se uma notícia ou anúncio tem evidência verificável suficiente
+    para constituir uma Obra (ou atualizar uma existente) vs ficar como Alerta Pendente de Validação.
+    Não cria obra apenas porque contém 'construção' ou 'investimento'.
+    """
+    texto_completo = f"{titulo or ''}. {resumo or ''}".strip()
+    t_low = texto_completo.lower()
+
+    termos_ruido = [
+        "futebol", "seleção", "liga", "benfica", "sporting", "fc porto", "acidente",
+        "trânsito", "cortado", "greve", "crime", "incêndio florestal", "famosos",
+        "crédito à habitação", "euribor", "bolsa de valores", " Wall Street", "inflação",
+        "opinião:", "podcast", "entrevista", "horóscopo"
+    ]
+    if any(r in t_low for r in termos_ruido):
+        return {
+            "relevante_radar": False,
+            "evidencia_suficiente_obra": False,
+            "motivo": "Tema fora do âmbito de obras e instalações técnicas."
+        }
+
+    # 1. Tem indicador concreto de ativo/obra física?
+    ativos_concretos = [
+        "data center", "datacenter", "centro de dados", "nova fábrica", "unidade fabril",
+        "unidade industrial", "nave industrial", "parque logístico", "plataforma logística",
+        "centro logístico", "entreposto logístico", "novo hospital", "ampliação do hospital",
+        "centro de saúde", "unidade de saúde", "central solar", "central fotovoltaica",
+        "subestação", "parque eólico", "empreitada de construção", "empreitada de reabilitação",
+        "concurso público para a construção", "novo hotel", "unidade hoteleira"
+    ]
+    tem_ativo = any(a in t_low for a in ativos_concretos)
+
+    # 2. Tem localização geográfica em Portugal verificável no texto?
+    regiao, distrito, concelho, loc_confirmada = identificar_localizacao_portugal(texto_completo)
+
+    # 3. Tem evidência de fase processual, concurso, adjudicação, licenciamento ou valor de obra?
+    fase = identificar_fase(texto_completo)
+    valor = extrair_valor_estimado(texto_completo)
+    empresas, _ = extrair_entidades_verificaveis(texto_completo)
+    tem_acao_concreta = (
+        fase != "Por verificar"
+        or valor is not None
+        or len(empresas) > 0
+        or fonte_tipo in ("TED Europa", "Portal BASE", "SIAIA / APA")
+    )
+
+    # Para criar/atualizar OBRA diretamente exige: Ativo Físico Concreto + Localização em PT + Evidência de Fase/Valor/Entidade
+    if tem_ativo and loc_confirmada and tem_acao_concreta:
+        return {
+            "relevante_radar": True,
+            "evidencia_suficiente_obra": True,
+            "motivo": f"Evidência verificável confirmada ({concelho}, {distrito} | Fase: {fase})."
+        }
+
+    # Se tiver ativo ou termos do setor, mas faltar localização exata ou evidência de projeto, fica como Alerta Pendente
+    termos_setor = ativos_concretos + [
+        "empreitada", "concurso público", "adjudicação", "licenciamento", "instalações elétricas",
+        "infraestrutura", "obra pública", "reabilitação", "ampliação"
+    ]
+    if any(k in t_low for k in termos_setor):
+        motivos_falta = []
+        if not tem_ativo:
+            motivos_falta.append("tipo de obra/edifício específico não detalhado")
+        if not loc_confirmada:
+            motivos_falta.append("localização/concelho não explícito no título")
+        if not tem_acao_concreta:
+            motivos_falta.append("fase/entidade/concurso por confirmar")
+        return {
+            "relevante_radar": True,
+            "evidencia_suficiente_obra": False,
+            "motivo": "Requer validação humana: " + ", ".join(motivos_falta) + "."
+        }
+
+    return {
+        "relevante_radar": False,
+        "evidencia_suficiente_obra": False,
+        "motivo": "Sem indicadores de obra ou instalação técnica."
+    }
+
+
+def analisar_texto_obra(texto_livre, fonte_nome="Inserção Manual", fonte_url="", data_publicacao=None):
+    """
+    Extrai entidades e parâmetros comerciais sustentados pelo texto da fonte.
+    Nunca inventa contactos pessoais, emails, telefones, adjudicações ou empresas não citadas.
+    """
+    linhas_texto = [l.strip() for l in (texto_livre or "").split("\n") if l.strip()]
+    primeira_frase = linhas_texto[0].split(". ")[0].strip() if linhas_texto else "Oportunidade em Análise"
+    titulo = primeira_frase[:110]
+
+    segmento = identificar_segmento(texto_livre)
+    regiao, distrito, concelho, loc_confirmada = identificar_localizacao_portugal(texto_livre)
+    fase = identificar_fase(texto_livre)
+    valor_estimado = extrair_valor_estimado(texto_livre)
+    codigo_oficial = extrair_codigo_oficial(texto_livre)
+
+    empresas_sugeridas, papeis_identificados = extrair_entidades_verificaveis(texto_livre)
     produtos = avaliar_compatibilidade_pemsa(segmento, texto_livre)
 
-    # Timing de fornecimento estimado
-    if any(k in texto_livre.lower() for k in ["siaia", "participa", "impacte ambiental", "aia", "estudo prévio"]):
-        timing = "Prescrição Técnica Antecipada (6 a 18 meses antes de obra - Janela Ideal PÉMSA)"
-    elif "projeto" in fase.lower() or "concurso" in fase.lower():
-        timing = "Especificação técnica em aberto (sem compra fechada)"
-    elif "início" in fase.lower():
-        timing = "Subempreitada elétrica em consulta / Fase inicial de estrutura"
+    # Timing de fornecimento baseado na fase verificada
+    if fase == "Projeto de Execução / MEP":
+        timing = "Especificação técnica em aberto (Fase de Projeto / Licenciamento)"
+    elif fase == "Concurso de Empreitada":
+        timing = "Concurso em curso (Orçamentação por Empreiteiros / Instaladores)"
+    elif fase == "Adjudicação / Pré-Construção":
+        timing = "Empreitada adjudicada (Preparação de compras de materiais elétricos)"
+    elif fase in ("Início de Construção", "Em Obra (Instalações a decorrer)"):
+        timing = "Obra em curso (Fornecimento via instalador elétrico / distribuidor)"
     else:
-        timing = "Obra adjudicada / em andamento - contactar instalador elétrico vencedor"
+        timing = "Por verificar (Fase da obra não explícita na fonte)"
 
-    # Calcular score de oportunidade
+    # Só menciona pessoas se o nome constar literalmente na fonte
+    pessoa_match = re.search(
+        r'(?:Eng\.(?:ª)?|Arqt\.(?:o|a)?)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú]+(?:\s+[A-ZÀ-Ú][a-zA-ZÀ-ú]+){1,3})',
+        texto_livre or ""
+    )
+
+    if empresas_sugeridas:
+        partes = [f"{e['papel']}: {e['nome']} (Confirmado por fonte)" for e in empresas_sugeridas]
+        responsavel_empresa = " | ".join(partes)
+        estado_verificacao = "Confirmado por fonte"
+    else:
+        responsavel_empresa = "Por verificar (Entidades técnicas não especificadas na notícia)"
+        estado_verificacao = "Por verificar"
+
+    if pessoa_match:
+        responsavel_nome = f"{pessoa_match.group(0).strip()} (Confirmado por fonte)"
+    elif "Projeto" in fase:
+        responsavel_nome = "Por verificar — Prioridade: Identificar Projetista MEP junto do Promotor"
+    elif "Concurso" in fase:
+        responsavel_nome = "Por verificar — Prioridade: Identificar Concorrentes / Empreiteiro no Caderno de Encargos"
+    elif "Adjudicação" in fase or "Construção" in fase or "Obra" in fase:
+        responsavel_nome = "Por verificar — Prioridade: Identificar Direção de Obra / Instalador Elétrico"
+    else:
+        responsavel_nome = "Por verificar"
+
+    responsavel_cargo = "Confirmado por fonte" if empresas_sugeridas else "Por verificar"
+    responsavel_contacto = "Por verificar (Não inventar email/telefone sem confirmação)"
+
     scoring = calcular_score_obra(
-        fase=fase,
+        fase=fase if fase != "Por verificar" else "Projeto de Execução / MEP",
         segmento=segmento,
         qtd_produtos_compativeis=len(produtos),
         decisores_identificados=papeis_identificados,
-        tem_contactos_diretos=False,
+        tem_contactos_diretos=bool(pessoa_match),
         timing_fornecimento=timing,
-        regiao=regiao
+        regiao=regiao if loc_confirmada else "Centro"
     )
 
-    # Próxima ação recomendada pela estratégia comercial PÉMSA
-    if any(k in texto_livre.lower() for k in ["siaia", "participa", "impacte ambiental", "aia"]):
-        proxima_acao = "🔥 Janela de Ouro de Prescrição: Contactar o gabinete de engenharia projetista para prescrever Pemsaband / Rejiband Rapide no Caderno de Encargos antes do concurso."
-    elif "Projetista MEP" in papeis_identificados:
-        proxima_acao = f"Contactar o projetista ({empresas_sugeridas[1]['nome'] if len(empresas_sugeridas)>1 else 'gabinete'}) para apresentar especificações e vantagens de {produtos[0]['familia_produto'] if produtos else 'PÉMSA'}."
-    elif "Promotor/Dono" in papeis_identificados:
-        proxima_acao = "Apurar junto do dono da obra qual o gabinete responsável pelo projeto elétrico (MEP) e a data prevista para consultas."
+    if not loc_confirmada:
+        # Penalizar score se localização ainda estiver por verificar
+        scoring["score_total"] = max(25, scoring["score_total"] - 20)
+        if scoring["score_total"] < 50:
+            scoring["prioridade"] = "Baixa"
+        elif scoring["score_total"] < 75:
+            scoring["prioridade"] = "Média"
+
+    if "Projetista MEP" in papeis_identificados:
+        proxima_acao = "Contactar o gabinete projetista confirmado pela fonte para especificar Pemsaband / Rejiband."
     elif "Empreiteiro Geral" in papeis_identificados:
-        proxima_acao = "Identificar o instalador elétrico subcontratado pelo empreiteiro para cotar o pacote de caminhos de cabos e tubos via distribuição parceira."
-    elif "base" in fonte_nome.lower():
-        proxima_acao = "Adjudicação confirmada: contactar o instalador elétrico vencedor ou diretor de obra para canalizar fornecimento pelo distribuidor local."
+        proxima_acao = "Contactar o empreiteiro confirmado pela fonte para apurar o subempreiteiro de instalações elétricas."
+    elif "Promotor/Dono" in papeis_identificados:
+        proxima_acao = "Contactar o promotor/entidade adjudicante para identificar o projetista MEP e calendário do concurso."
     else:
-        proxima_acao = "Investigar intervenientes técnicos no Portal BASE / LinkedIn / Notícias para mapear o projetista elétrico."
+        proxima_acao = "Validar fonte oficial (Portal BASE / Município / Promotor) para identificar projetista e construtor."
 
-    # Determinação de Prioridade de Contacto, Projetista, Construtor e Instalador
-    projetistas_txt = [e["nome"] for e in empresas_sugeridas if e["papel"] == "Projetista MEP"]
-    construtores_txt = [e["nome"] for e in empresas_sugeridas if e["papel"] == "Empreiteiro Geral"]
-    instaladores_txt = [e["nome"] for e in empresas_sugeridas if e["papel"] == "Instalador Elétrico"]
-    promotores_txt = [e["nome"] for e in empresas_sugeridas if e["papel"] == "Promotor/Dono"]
-
-    partes_intervenientes = []
-    if projetistas_txt:
-        partes_intervenientes.append(f"Projetista MEP: {', '.join(projetistas_txt)}")
-    else:
-        partes_intervenientes.append("Projetista MEP: A confirmar junto do Promotor/Concurso")
-    if construtores_txt:
-        partes_intervenientes.append(f"Construtor: {', '.join(construtores_txt)}")
-    else:
-        partes_intervenientes.append("Construtor: Em concurso / A designar")
-    if instaladores_txt:
-        partes_intervenientes.append(f"Instalador: {', '.join(instaladores_txt)}")
-    if promotores_txt:
-        partes_intervenientes.append(f"Promotor: {', '.join(promotores_txt)}")
-
-    responsavel_empresa = " | ".join(partes_intervenientes)
-
-    if "Projeto" in fase or "Planeamento" in fase:
-        responsavel_nome = "1.ª Prioridade: Ligar 1.º ao Projetista MEP (Prescrição em Caderno de Encargos)"
-        responsavel_cargo = "2.ª Prioridade: Promotor / Fiscalização Técnica"
-    elif "Concurso" in fase:
-        responsavel_nome = "1.ª Prioridade: Ligar 1.º ao Construtor (Dep. Orçamentação) e Projetista MEP"
-        responsavel_cargo = "2.ª Prioridade: Instaladores Elétricos Concorrentes"
-    else:
-        responsavel_nome = "1.ª Prioridade: Ligar 1.º ao Instalador Elétrico e Construtor Geral (Compras MEP)"
-        responsavel_cargo = "2.ª Prioridade: Distribuidor Elétrico Local"
-
-    # Se o texto mencionar explicitamente uma pessoa real, adiciona-a na nota de prioridade
-    pessoa_match = re.search(r'(?:Eng\.(?:ª)?|Dr\.(?:ª)?|Arqt\.(?:o|a)?)\s+([A-ZÀ-Ú][a-zA-ZÀ-ú]+(?:\s+[A-ZÀ-Ú][a-zA-ZÀ-ú]+){1,3})', texto_livre)
-    if pessoa_match:
-        responsavel_nome = f"{responsavel_nome} (Contacto citado na fonte: {pessoa_match.group(0).strip()})"
-
-    responsavel_contacto = "Consultar Central Geral da Empresa na Ficha ou Pesquisar Equipa MEP no LinkedIn / Portal BASE"
+    evidencia = avaliar_evidencia_item(titulo, texto_livre, fonte_tipo=fonte_nome)
 
     return {
         "titulo": titulo,
+        "codigo_oficial": codigo_oficial,
         "segmento": segmento,
         "regiao": regiao,
         "distrito": distrito,
+        "concelho": concelho,
+        "localizacao_confirmada": loc_confirmada,
         "fase": fase,
+        "valor_estimado": valor_estimado or "Por verificar",
         "timing_fornecimento": timing,
         "score": scoring["score_total"],
         "prioridade": scoring["prioridade"],
@@ -222,352 +485,229 @@ def analisar_texto_obra(texto_livre, fonte_nome="Inserção / Pesquisa", fonte_u
         "responsavel_cargo": responsavel_cargo,
         "responsavel_empresa": responsavel_empresa,
         "responsavel_contacto": responsavel_contacto,
-        "resumo": texto_livre[:400] + ("..." if len(texto_livre) > 400 else ""),
+        "estado_verificacao": estado_verificacao,
+        "evidencia_suficiente_obra": evidencia["evidencia_suficiente_obra"],
+        "motivo_evidencia": evidencia["motivo"],
+        "resumo": (texto_livre or "")[:450] + ("..." if len(texto_livre or "") > 450 else ""),
         "fonte_nome": fonte_nome,
-        "fonte_url": fonte_url
+        "fonte_url": fonte_url,
+        "data_publicacao": normalizar_data_publicacao(data_publicacao),
+        "data_consulta": datetime.now().isoformat(timespec="seconds")
     }
 
-def recolher_noticias_reais_rss(max_itens=8):
-    """
-    Pesquisa notícias reais em tempo real no Google News Portugal (RSS) sobre novas obras,
-    data centers, fábricas, logística, hospitais e energia.
-    """
-    queries = [
-        '("data center" OR "centro de dados" OR "nova fábrica" OR "unidade fabril") Portugal when:14d',
-        '("plataforma logística" OR "parque logístico" OR "ampliação industrial" OR "central solar") Portugal when:14d'
-    ]
-    alertas_reais = []
-    titulos_vistos = set()
-    termos_excluir = ["cortado", "acidente", "trânsito", "futebol", "tap", "batom", "balm", "intempéries", "greve"]
-    termos_relevantes = ["data center", "centro de dados", "fábrica", "industrial", "logística", "logístico", "hospital", "solar", "empreitada", "construção", "investimento", "milhões", "campus", "subestação"]
 
-    for q in queries:
+# =====================================================================
+# CONECTORES REAIS E VERIFICÁVEIS DE FONTES PÚBLICAS
+# =====================================================================
+
+FONTES_CONFIGURADAS = [
+    {
+        "id": "gnews_empreitadas_concursos",
+        "nome": "Google News PT — Empreitadas, Concursos e Adjudicações",
+        "tipo": "Imprensa / Contratação Pública",
+        "metodo": "rss",
+        "url": "https://news.google.com/rss/search?q=" + urllib.parse.quote(
+            '("empreitada" OR "concurso público" OR "adjudicação") AND ("construção" OR "hospital" OR "fábrica" OR "escola" OR "subestação") Portugal when:30d'
+        ) + "&hl=pt-PT&gl=PT&ceid=PT:pt"
+    },
+    {
+        "id": "gnews_datacenters_industria",
+        "nome": "Google News PT — Data Centers, Indústria e Logística",
+        "tipo": "Imprensa Económica & Setorial",
+        "metodo": "rss",
+        "url": "https://news.google.com/rss/search?q=" + urllib.parse.quote(
+            '("data center" OR "centro de dados" OR "nova fábrica" OR "unidade industrial" OR "plataforma logística" OR "parque logístico") Portugal when:30d'
+        ) + "&hl=pt-PT&gl=PT&ceid=PT:pt"
+    },
+    {
+        "id": "gnews_energia_saude_turismo",
+        "nome": "Google News PT — Energia, Subestações, Saúde e Hotelaria",
+        "tipo": "Imprensa Económica & Setorial",
+        "metodo": "rss",
+        "url": "https://news.google.com/rss/search?q=" + urllib.parse.quote(
+            '("central solar" OR "central fotovoltaica" OR "subestação" OR "novo hospital" OR "novo hotel" OR "ampliação hospitalar") Portugal when:30d'
+        ) + "&hl=pt-PT&gl=PT&ceid=PT:pt"
+    },
+    {
+        "id": "gnews_base_ted_siaia",
+        "nome": "Pesquisa Pública — Anúncios Diário da República / BASE / AIA",
+        "tipo": "Portais Oficiais & Anúncios",
+        "metodo": "rss",
+        "url": "https://news.google.com/rss/search?q=" + urllib.parse.quote(
+            '("Diário da República" OR "Portal BASE" OR "impacte ambiental" OR "consulta pública") AND ("empreitada" OR "construção" OR "central solar" OR "fábrica" OR "hospital") Portugal when:30d'
+        ) + "&hl=pt-PT&gl=PT&ceid=PT:pt"
+    }
+]
+
+
+def consultar_fonte_rss(fonte_cfg, timeout=8, session=None, max_itens=15):
+    """
+    Consulta um feed RSS público real com validação rigorosa de:
+    - HTTP status code
+    - Timeouts e erros de rede
+    - Conteúdo vazio e erros de parsing XML
+    - Extração da data real de publicação (<pubDate>) separada da data/hora de consulta
+    """
+    inicio = time.time()
+    data_consulta = datetime.now().isoformat(timespec="seconds")
+    resultado = {
+        "fonte_id": fonte_cfg["id"],
+        "fonte_nome": fonte_cfg["nome"],
+        "fonte_tipo": fonte_cfg["tipo"],
+        "url_consultado": fonte_cfg["url"],
+        "data_consulta": data_consulta,
+        "sucesso": False,
+        "http_status": None,
+        "erro": None,
+        "itens": [],
+        "tempo_ms": 0
+    }
+
+    req_getter = session.get if session is not None else requests.get
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) RadarPEMSA/2.0",
+        "Accept": "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8"
+    }
+
+    try:
         try:
-            url = f"https://news.google.com/rss/search?q={urllib.parse.quote(q)}&hl=pt-PT&gl=PT&ceid=PT:pt"
-            resp = requests.get(url, timeout=6, verify=False, headers={"User-Agent": "Mozilla/5.0"})
-            if resp.status_code == 200:
-                root = ET.fromstring(resp.content)
-                for item in root.findall(".//item"):
-                    raw_title = (item.find("title").text or "").strip()
-                    link = (item.find("link").text or "").strip()
-                    source_el = item.find("source")
-                    fonte_jornal = source_el.text.strip() if source_el is not None and source_el.text else "Imprensa Económica PT"
+            resp = req_getter(fonte_cfg["url"], timeout=timeout, headers=headers)
+        except requests.exceptions.SSLError:
+            # Fallback apenas se houver proxy SSL corporativo local na máquina Windows
+            resp = req_getter(fonte_cfg["url"], timeout=timeout, verify=False, headers=headers)
 
-                    # Limpar sufixo do jornal no título
-                    titulo_limpo = raw_title.rsplit(" - ", 1)[0].strip() if " - " in raw_title else raw_title
-                    t_low = titulo_limpo.lower()
+        resultado["http_status"] = resp.status_code
 
-                    if any(ex in t_low for ex in termos_excluir):
-                        continue
-                    if not any(rel in t_low for rel in termos_relevantes):
-                        continue
-                    if titulo_limpo in titulos_vistos:
-                        continue
+        if resp.status_code != 200:
+            resultado["erro"] = f"Erro HTTP {resp.status_code} ao consultar {fonte_cfg['nome']}. Verifique disponibilidade do serviço."
+            resultado["tempo_ms"] = int((time.time() - inicio) * 1000)
+            return resultado
 
-                    titulos_vistos.add(titulo_limpo)
-                    regiao, distrito = identificar_regiao_distrito(titulo_limpo)
-                    segmento = identificar_segmento(titulo_limpo)
+        conteudo = resp.content
+        if not conteudo or not conteudo.strip():
+            resultado["erro"] = f"Resposta vazia recebida de {fonte_cfg['nome']}."
+            resultado["tempo_ms"] = int((time.time() - inicio) * 1000)
+            return resultado
 
-                    alertas_reais.append({
-                        "fonte_tipo": "Pesquisa Web / Notícias Reais",
-                        "fonte_nome": f"{fonte_jornal} (Google News PT)",
-                        "titulo": titulo_limpo,
-                        "link": link,
-                        "data_publicacao": date.today().isoformat(),
-                        "entidade_promotora": f"Investimento detetado em {distrito} ({fonte_jornal})",
-                        "segmento_estimado": segmento,
-                        "regiao_estimada": regiao,
-                        "resumo_bruto": f"Notícia recolhida automaticamente na sincronização semanal ({date.today().isoformat()}): {raw_title}. Potencial de especificação de caminhos de cabos Pemsaband / Rejiband Rapide e tubos técnicos."
-                    })
-                    if len(alertas_reais) >= max_itens:
-                        break
-        except Exception:
-            continue
-        if len(alertas_reais) >= max_itens:
-            break
+        try:
+            root = ET.fromstring(conteudo)
+        except ET.ParseError as e_xml:
+            resultado["erro"] = f"Erro de parsing XML em {fonte_cfg['nome']}: {str(e_xml)}"
+            resultado["tempo_ms"] = int((time.time() - inicio) * 1000)
+            return resultado
 
-    return alertas_reais
+        items_xml = root.findall(".//item")
+        if not items_xml:
+            # Também suporta formato Atom <entry>
+            items_xml = root.findall(".//{http://www.w3.org/2005/Atom}entry")
+
+        itens_validos = []
+        for item in items_xml[:max_itens]:
+            title_el = item.find("title")
+            link_el = item.find("link")
+            pub_el = item.find("pubDate")
+            source_el = item.find("source")
+            desc_el = item.find("description")
+
+            raw_title = (title_el.text or "").strip() if title_el is not None else ""
+            raw_link = (link_el.text or "").strip() if link_el is not None else ""
+            raw_pub = (pub_el.text or "").strip() if pub_el is not None else None
+            fonte_especifica = (
+                source_el.text.strip()
+                if source_el is not None and source_el.text
+                else fonte_cfg["nome"]
+            )
+
+            if not raw_title or not raw_link:
+                continue
+
+            # Separar sufixo do órgão de comunicação social quando aplicável
+            titulo_limpo = raw_title.rsplit(" - ", 1)[0].strip() if " - " in raw_title else raw_title
+
+            # Limpar tags HTML simples da descrição se existir
+            resumo_limpo = ""
+            if desc_el is not None and desc_el.text:
+                resumo_limpo = re.sub(r'<[^>]+>', ' ', desc_el.text)
+                resumo_limpo = re.sub(r'\s+', ' ', resumo_limpo).strip()
+
+            data_pub_real = normalizar_data_publicacao(raw_pub)
+
+            itens_validos.append({
+                "titulo_original": raw_title,
+                "titulo": titulo_limpo,
+                "link": raw_link,
+                "fonte_tipo": fonte_cfg["tipo"],
+                "fonte_nome": f"{fonte_especifica}",
+                "fonte_conector_id": fonte_cfg["id"],
+                "data_publicacao": data_pub_real,  # Data real da publicação (ou None se ausente)
+                "data_consulta": data_consulta,    # Data/hora exata da consulta
+                "resumo_bruto": resumo_limpo if resumo_limpo and resumo_limpo != raw_title else raw_title
+            })
+
+        resultado["sucesso"] = True
+        resultado["itens"] = itens_validos
+        resultado["tempo_ms"] = int((time.time() - inicio) * 1000)
+        return resultado
+
+    except requests.exceptions.Timeout:
+        resultado["erro"] = f"Timeout ({timeout}s excedidos) ao contactar {fonte_cfg['nome']}. Tente aumentar o tempo limite ou verificar a ligação."
+    except requests.exceptions.ConnectionError as e_conn:
+        resultado["erro"] = f"Falha de ligação de rede ao contactar {fonte_cfg['nome']}: verifique o acesso à Internet ou firewall ({str(e_conn)[:120]})."
+    except Exception as e_gen:
+        resultado["erro"] = f"Erro inesperado em {fonte_cfg['nome']}: {type(e_gen).__name__}: {str(e_gen)[:140]}"
+
+    resultado["tempo_ms"] = int((time.time() - inicio) * 1000)
+    return resultado
 
 
-def obter_obras_atualizacao_semanal():
+def recolher_todas_as_fontes(fontes=None, timeout=8, session=None):
     """
-    Retorna o lote de novas obras qualificadas da sincronização semanal (2.ª feira)
-    para inserção direta no Radar PÉMSA (tabela obras), garantindo que o painel principal
-    evolui todas as semanas com novos projetos reais em Portugal.
+    Executa todos os conectores configurados de forma isolada (uma falha numa fonte
+    nunca impede a consulta às restantes) e devolve o relatório estruturado completo.
     """
-    hoje_str = date.today().isoformat()
-    obras_semanais = [
-        {
-            "obra": {
-                "titulo": "Campus Data Center IA de Coruche — 220M€ (Infraestrutura Nvidia)",
-                "codigo_ref": "PEMSA-2026-CORUCHE",
-                "segmento": "Data Center",
-                "regiao": "Sul",
-                "distrito": "Santarém",
-                "concelho": "Coruche",
-                "morada_localizacao": "Zona Industrial e Tecnológica de Coruche, Santarém",
-                "lat": 38.9583,
-                "lon": -8.5264,
-                "fase": "Projeto de Execução / MEP",
-                "status_comercial": "Nova Oportunidade",
-                "score": 97,
-                "score_breakdown": json.dumps({
-                    "score_total": 97,
-                    "prioridade": "Alta",
-                    "detalhe": {"fase": 30, "produtos": 25, "decisores": 20, "timing": 15, "geografia": 7}
-                }, ensure_ascii=False),
-                "prioridade": "Alta",
-                "valor_estimado": "220.000.000 €",
-                "prazo_previsto": "2026 - 2027",
-                "data_detecao": hoje_str,
-                "fonte_tipo": "Notícias Económicas",
-                "fonte_nome": "ECO Economia Online / Radar Semanal",
-                "fonte_url": "https://eco.sapo.pt/",
-                "resumo": "Novo centro de dados de alta densidade ('compacto') avaliado em 220 milhões de euros em Coruche, equipado com clusters de chips Nvidia para IA. Elevadíssima exigência de caminhos de cabos em varão Rejiband Rapide Black C8 para salas técnicas de servidores e caminhos de cabos Pemsaband para alimentação crítica e redundância energética.",
-                "timing_fornecimento": "Janela Ideal de Prescrição Técnica (Projeto de Execução MEP em curso)",
-                "proxima_acao": "1.º Ligar ao Projetista MEP (Quadrante) para especificar Rejiband Rapide Black C8; 2.º Contactar Direção de Orçamentação MEP da Sotécnica (Instalador).",
-                "notas_comerciais": "Detetado na atualização automática semanal de segunda-feira.",
-                "responsavel_nome": "1.ª Prioridade: Ligar 1.º ao Projetista MEP (Dep. Data Centers / Eletrotécnica)",
-                "responsavel_cargo": "2.ª Prioridade: Instalador Elétrico (Direção de Orçamentação)",
-                "responsavel_empresa": "Projetista MEP: Quadrante Engenharia | Instalador Elétrico: Sotécnica (VINCI)",
-                "responsavel_contacto": "Quadrante: +351 217 998 210 | geral@quadrante-engenharia.pt • Sotécnica: +351 219 829 200"
-            },
-            "empresas": [
-                {"nome": "Quadrante Engenharia & MEP", "papel": "Projetista MEP"},
-                {"nome": "Sotécnica - VINCI Energies Portugal", "papel": "Instalador Elétrico"}
-            ],
-            "produtos": [
-                {"familia_produto": "Caminhos de cabos em varão (Rejiband / Rejiband Rapide)", "nivel_potencial": "Oportunidade Confirmada", "especificacao_detalhe": "Rejiband Rapide Black C8 para distribuição aérea sobre bastidores GPU Nvidia."},
-                {"familia_produto": "Caminhos de cabos em chapa (Pemsaband)", "nivel_potencial": "Oportunidade Confirmada", "especificacao_detalhe": "Galerias de potência UPS e geradores de emergência."},
-                {"familia_produto": "Sistemas de suporte e fixação", "nivel_potencial": "Potencial Forte", "especificacao_detalhe": "Suportes suspensos rápidos para tetos técnicos de alta carga."}
-            ],
-            "tarefa": {
-                "titulo": "Apresentar dossier Data Center IA Coruche (Rejiband Black C8) ao Projetista MEP (Quadrante)",
-                "tipo": "Reunião Técnica",
-                "prioridade": "Urgente"
-            }
-        },
-        {
-            "obra": {
-                "titulo": "Nova Fábrica da Somfy em Felgueiras — Unidade de Motores e Automação",
-                "codigo_ref": "PEMSA-2026-SOMFY",
-                "segmento": "Industrial / Fábricas",
-                "regiao": "Norte",
-                "distrito": "Porto",
-                "concelho": "Felgueiras",
-                "morada_localizacao": "Polo Industrial de Felgueiras, Distrito do Porto",
-                "lat": 41.3664,
-                "lon": -8.1972,
-                "fase": "Projeto de Execução / MEP",
-                "status_comercial": "Nova Oportunidade",
-                "score": 92,
-                "score_breakdown": json.dumps({
-                    "score_total": 92,
-                    "prioridade": "Alta",
-                    "detalhe": {"fase": 30, "produtos": 23, "decisores": 18, "timing": 13, "geografia": 8}
-                }, ensure_ascii=False),
-                "prioridade": "Alta",
-                "valor_estimado": "35.000.000 €",
-                "prazo_previsto": "2026 - 2027",
-                "data_detecao": hoje_str,
-                "fonte_tipo": "Notícias Económicas",
-                "fonte_nome": "Jornal Económico / AICEP Investimento",
-                "fonte_url": "https://jornaleconomico.sapo.pt/",
-                "resumo": "Grupo francês Somfy reforça capacidade industrial em Portugal com construção de nova unidade fabril em Felgueiras dedicada a motores tubulares e sistemas de automação. Forte necessidade de caminhos de cabos em chapa Pemsaband PQX para linhas de montagem, tubos metálicos flexíveis e bucins IP68 para maquinaria.",
-                "timing_fornecimento": "Especificação técnica de projeto elétrico industrial em aberto",
-                "proxima_acao": "1.º Ligar ao Projetista MEP (Afaconsult Porto) para prescrever Pemsaband PQX e tubos; 2.º Contactar Construtor (DST Group) e Instalador (CME).",
-                "notas_comerciais": "Detetado na atualização automática semanal de segunda-feira.",
-                "responsavel_nome": "1.ª Prioridade: Ligar 1.º ao Projetista MEP (Escritório Porto) e Construtor",
-                "responsavel_cargo": "2.ª Prioridade: Instalador Elétrico Industrial (CME)",
-                "responsavel_empresa": "Projetista: Afaconsult | Construtor: DST Group | Instalador: CME",
-                "responsavel_contacto": "Afaconsult Porto: +351 225 320 060 • DST Group: +351 253 307 200 • CME: +351 219 259 100"
-            },
-            "empresas": [
-                {"nome": "Afaconsult Engenharia e Projetos", "papel": "Projetista MEP"},
-                {"nome": "CME - Construção e Manutenção Eletromecânica", "papel": "Instalador Elétrico"},
-                {"nome": "DST Group (Domingos da Silva Teixeira)", "papel": "Empreiteiro Geral"}
-            ],
-            "produtos": [
-                {"familia_produto": "Caminhos de cabos em chapa (Pemsaband)", "nivel_potencial": "Oportunidade Confirmada", "especificacao_detalhe": "Pemsaband PQX para distribuição geral de força motriz nas naves fabris."},
-                {"familia_produto": "Tubos rígidos e flexíveis", "nivel_potencial": "Oportunidade Confirmada", "especificacao_detalhe": "Tubos flexíveis metálicos e poliamida para alimentação de robots e linhas de montagem."},
-                {"familia_produto": "Bucins e acessórios", "nivel_potencial": "Potencial Forte", "especificacao_detalhe": "Bucins metálicos EMC e IP68 para quadros de comando industrial."}
-            ],
-            "tarefa": {
-                "titulo": "Contactar Projetista (Afaconsult) e Construtor (DST) sobre projeto elétrico da fábrica Somfy Felgueiras",
-                "tipo": "Telefonema",
-                "prioridade": "Alta"
-            }
-        },
-        {
-            "obra": {
-                "titulo": "Plataforma Logística Logicor (34.000 m²) na Póvoa de Santa Iria",
-                "codigo_ref": "PEMSA-2026-LOGICOR",
-                "segmento": "Logística / Armazéns",
-                "regiao": "Sul",
-                "distrito": "Lisboa",
-                "concelho": "Vila Franca de Xira",
-                "morada_localizacao": "Eixo Logístico da Póvoa de Santa Iria, Grande Lisboa",
-                "lat": 38.8601,
-                "lon": -9.0667,
-                "fase": "Concurso de Empreitada",
-                "status_comercial": "Nova Oportunidade",
-                "score": 88,
-                "score_breakdown": json.dumps({
-                    "score_total": 88,
-                    "prioridade": "Alta",
-                    "detalhe": {"fase": 26, "produtos": 22, "decisores": 18, "timing": 14, "geografia": 8}
-                }, ensure_ascii=False),
-                "prioridade": "Alta",
-                "valor_estimado": "28.500.000 €",
-                "prazo_previsto": "4.º Trimestre 2026",
-                "data_detecao": hoje_str,
-                "fonte_tipo": "Notícias Económicas",
-                "fonte_nome": "Diário Imobiliário / Distribuição Hoje",
-                "fonte_url": "https://diarioimobiliario.pt/",
-                "resumo": "Investimento da Logicor na construção e modernização de plataforma logística de 34.000 m² na Grande Lisboa (Póvoa de Santa Iria), preparada para operadores de distribuição moderna, frio positivo e cais de carregamento elétrico de frotas.",
-                "timing_fornecimento": "Fase de consulta a empreiteiros gerais e instaladores elétricos",
-                "proxima_acao": "1.º Ligar à Direção de Produção MEP do Construtor (Casais) e ao Instalador Elétrico (Sotécnica) para cotar caminhos de cabos em varão e chapa.",
-                "notas_comerciais": "Detetado na atualização automática semanal de segunda-feira.",
-                "responsavel_nome": "1.ª Prioridade: Ligar 1.º ao Construtor (Compras MEP) e Instalador Elétrico",
-                "responsavel_cargo": "2.ª Prioridade: Promotor Logístico (Logicor Portugal)",
-                "responsavel_empresa": "Construtor Geral: Casais Engenharia | Instalador Elétrico: Sotécnica (VINCI)",
-                "responsavel_contacto": "Casais: +351 253 305 400 | geral@casais.pt • Sotécnica: +351 219 829 200 | geral@sotecnica.pt"
-            },
-            "empresas": [
-                {"nome": "Casais Engenharia e Construção", "papel": "Empreiteiro Geral"},
-                {"nome": "Sotécnica - VINCI Energies Portugal", "papel": "Instalador Elétrico"}
-            ],
-            "produtos": [
-                {"familia_produto": "Caminhos de cabos em chapa (Pemsaband)", "nivel_potencial": "Oportunidade Confirmada", "especificacao_detalhe": "Infraestrutura elétrica para cais de carregamento de camiões elétricos."},
-                {"familia_produto": "Caminhos de cabos em varão (Rejiband / Rejiband Rapide)", "nivel_potencial": "Potencial Forte", "especificacao_detalhe": "Iluminação técnica LED em naves de grande altura e redes de picking."}
-            ],
-            "tarefa": {
-                "titulo": "Validar pacote elétrico da Plataforma Logicor Póvoa de Santa Iria com a Direção de Produção MEP da Casais",
-                "tipo": "Email Técnico",
-                "prioridade": "Alta"
-            }
-        },
-        {
-            "obra": {
-                "titulo": "Central Fotovoltaica Sophia e Subestações (Fundão / Beira Baixa) — Processo SIAIA",
-                "codigo_ref": "PEMSA-2026-SOPHIA",
-                "segmento": "Energia / Renováveis",
-                "regiao": "Centro",
-                "distrito": "Castelo Branco",
-                "concelho": "Fundão",
-                "morada_localizacao": "Beira Baixa — Concelhos do Fundão e Castelo Branco",
-                "lat": 40.1403,
-                "lon": -7.5014,
-                "fase": "Projeto de Execução / MEP",
-                "status_comercial": "Nova Oportunidade",
-                "score": 85,
-                "score_breakdown": json.dumps({
-                    "score_total": 85,
-                    "prioridade": "Alta",
-                    "detalhe": {"fase": 30, "produtos": 20, "decisores": 15, "timing": 13, "geografia": 7}
-                }, ensure_ascii=False),
-                "prioridade": "Alta",
-                "valor_estimado": "95.000.000 €",
-                "prazo_previsto": "2027",
-                "data_detecao": hoje_str,
-                "fonte_tipo": "SIAIA / APA",
-                "fonte_nome": "Portal PARTICIPA / SIAIA — Consulta Pública",
-                "fonte_url": "https://participa.pt/",
-                "resumo": "Grande projeto fotovoltaico Sophia na Beira Baixa em fase de Avaliação de Impacte Ambiental (SIAIA / PARTICIPA) com reformulação de layout e subestações coletoras de muito alta tensão. Janela antecipada ideal para especificar caminhos de cabos com tratamento anticorrosão de alta durabilidade ( Galvanizado a Quente HDG / Black C8 ).",
-                "timing_fornecimento": "Prescrição Técnica Antecipada (Fase SIAIA / Projeto de Execução)",
-                "proxima_acao": "1.º Ligar ao Projetista de Engenharia Elétrica (Projenel) e à divisão de Energia do Construtor (Mota-Engil) para especificar acabamento HDG / Black C8.",
-                "notas_comerciais": "Detetado na atualização automática semanal de segunda-feira via monitorização SIAIA/PARTICIPA.",
-                "responsavel_nome": "1.ª Prioridade: Ligar 1.º ao Projetista de Subestações / Engenharia Elétrica",
-                "responsavel_cargo": "2.ª Prioridade: Construtor EPC Solar (Divisão Energia)",
-                "responsavel_empresa": "Projetista Elétrico: Projenel | Construtor EPC: Mota-Engil Engenharia",
-                "responsavel_contacto": "Projenel: +351 253 200 400 | geral@projenel.pt • Mota-Engil: +351 225 190 300"
-            },
-            "empresas": [
-                {"nome": "Projenel Projetos e Consultoria Elétrica", "papel": "Projetista MEP"},
-                {"nome": "Mota-Engil Engenharia", "papel": "Empreiteiro Geral"}
-            ],
-            "produtos": [
-                {"familia_produto": "Caminhos de cabos em chapa (Pemsaband)", "nivel_potencial": "Oportunidade Confirmada", "especificacao_detalhe": "Caminhos de cabos galvanizados a quente (HDG) para subestações e postos de transformação solares."},
-                {"familia_produto": "Tubos rígidos e flexíveis", "nivel_potencial": "Potencial Forte", "especificacao_detalhe": "Tubos com resistência UV para proteção de cablagem DC exterior."}
-            ],
-            "tarefa": {
-                "titulo": "Contactar Projetista (Projenel) para especificação HDG na Central Solar Sophia (Fundão)",
-                "tipo": "Telefonema",
-                "prioridade": "Normal"
-            }
-        }
-    ]
-    return obras_semanais
+    lista_fontes = fontes if fontes is not None else FONTES_CONFIGURADAS
+    relatorios_fontes = []
+    todos_itens = []
+
+    for f_cfg in lista_fontes:
+        res_f = consultar_fonte_rss(f_cfg, timeout=timeout, session=session)
+        relatorios_fontes.append(res_f)
+        if res_f["sucesso"]:
+            todos_itens.extend(res_f["itens"])
+
+    fontes_sucesso = sum(1 for r in relatorios_fontes if r["sucesso"])
+    fontes_erro = sum(1 for r in relatorios_fontes if not r["sucesso"])
+
+    if fontes_sucesso == len(relatorios_fontes) and len(relatorios_fontes) > 0:
+        estado_global = "Sucesso"
+    elif fontes_sucesso > 0:
+        estado_global = "Sucesso parcial"
+    else:
+        estado_global = "Falha"
+
+    return {
+        "estado_global": estado_global,
+        "fontes_consultadas": len(relatorios_fontes),
+        "fontes_sucesso": fontes_sucesso,
+        "fontes_erro": fontes_erro,
+        "relatorios_fontes": relatorios_fontes,
+        "itens_recolhidos": todos_itens
+    }
 
 
-def simular_rastreio_alertas():
+def recolher_noticias_reais_rss(max_itens=15, timeout=8, session=None):
     """
-    Gera um lote de alertas recolhidos de fontes públicas portuguesas
-    (Portal BASE, TED, SIAIA/PARTICIPA e pesquisa em tempo real na imprensa económica via RSS).
+    Função de recolha de notícias RSS com relatório explícito de erros.
+    Retorna um dicionário com {'itens': [...], 'erros': [...], 'estado_global': ...}.
     """
-    alertas_exemplo = [
-        {
-            "fonte_tipo": "Notícias Económicas",
-            "fonte_nome": "ECO Economia Online",
-            "titulo": "Data center «compacto» de 220 milhões de euros coloca chips da Nvidia em Coruche",
-            "link": "https://eco.sapo.pt/",
-            "data_publicacao": date.today().isoformat(),
-            "entidade_promotora": "Consórcio Cloud & AI Infrastructure Coruche",
-            "segmento_estimado": "Data Center",
-            "regiao_estimada": "Sul",
-            "resumo_bruto": "Novo investimento de 220M€ em centro de dados equipado com processadores Nvidia em Coruche. Projeto de engenharia MEP em curso com elevada procura de caminhos de cabos em varão Rejiband Rapide Black C8 e suportação técnica."
-        },
-        {
-            "fonte_tipo": "Notícias Económicas",
-            "fonte_nome": "Jornal Económico / Indústria",
-            "titulo": "Franceses da Somfy reforçam presença industrial com nova fábrica em Felgueiras",
-            "link": "https://jornaleconomico.sapo.pt/",
-            "data_publicacao": date.today().isoformat(),
-            "entidade_promotora": "Somfy Group Portugal",
-            "segmento_estimado": "Industrial / Fábricas",
-            "regiao_estimada": "Norte",
-            "resumo_bruto": "Construção de nova unidade fabril em Felgueiras dedicada a motores elétricos e automação residencial. Forte oportunidade para caminhos de cabos em chapa Pemsaband PQX, tubos industriais e bucins metálicos."
-        },
-        {
-            "fonte_tipo": "Portal BASE",
-            "fonte_nome": "Base.gov.pt — Contratos Públicos",
-            "titulo": "Empreitada de Construção do Novo Centro de Saúde de Gaia Sul e Instalações Especiais",
-            "link": "https://www.base.gov.pt/Base4/pt/resultados/?type=contratos",
-            "data_publicacao": date.today().isoformat(),
-            "entidade_promotora": "Município de Vila Nova de Gaia / ULS Gaia e Espinho",
-            "segmento_estimado": "Hospital / Saúde",
-            "regiao_estimada": "Norte",
-            "resumo_bruto": "Concurso público para construção do novo centro de saúde com lote específico para instalações técnicas de eletricidade, redes de dados e telecomunicações no valor de 2,4M€. Fase: Lançamento de Concurso."
-        },
-        {
-            "fonte_tipo": "TED Europa",
-            "fonte_nome": "Tenders Electronic Daily (TED)",
-            "titulo": "Portugal-Lisboa: Construção do Novo Pólo Universitário e Laboratórios de Investigação Tecnológica",
-            "link": "https://ted.europa.eu/en/notice/-/detail/2026-PT-LABS",
-            "data_publicacao": date.today().isoformat(),
-            "entidade_promotora": "Universidade de Lisboa",
-            "segmento_estimado": "Edifícios Terciários & Públicos",
-            "regiao_estimada": "Sul",
-            "resumo_bruto": "Aviso de concurso internacional para execução de edifício de laboratórios de física e engenharia com forte exigência de proteção eletromagnética e caminhos de cabos em chapa metálica e varão."
-        },
-        {
-            "fonte_tipo": "SIAIA / APA",
-            "fonte_nome": "Agência Portuguesa do Ambiente — SIAIA & PARTICIPA",
-            "titulo": "Processo AIA: Central Solar Sophia e Subestações Coletoras na Beira Baixa (Fundão)",
-            "link": "https://participa.pt/",
-            "data_publicacao": date.today().isoformat(),
-            "entidade_promotora": "Promotor Renovável Beira Baixa / SIAIA",
-            "segmento_estimado": "Energia / Renováveis",
-            "regiao_estimada": "Centro",
-            "resumo_bruto": "Projeto em Avaliação de Impacte Ambiental (AIA) e consulta pública no portal PARTICIPA. Subestações e infraestrutura elétrica coletora com requisito de caminhos de cabos galvanizados a quente (HDG)."
-        }
-    ]
-
-    # Adicionar notícias reais recolhidas ao vivo via RSS (se houver ligação)
-    noticias_vivas = recolher_noticias_reais_rss(max_itens=5)
-    titulos_base = {a["titulo"].lower() for a in alertas_exemplo}
-    for nv in noticias_vivas:
-        if nv["titulo"].lower() not in titulos_base:
-            alertas_exemplo.append(nv)
-
-    return alertas_exemplo
+    res = recolher_todas_as_fontes(timeout=timeout, session=session)
+    erros = [r["erro"] for r in res["relatorios_fontes"] if not r["sucesso"] and r.get("erro")]
+    return {
+        "estado_global": res["estado_global"],
+        "fontes_consultadas": res["fontes_consultadas"],
+        "fontes_sucesso": res["fontes_sucesso"],
+        "fontes_erro": res["fontes_erro"],
+        "erros": erros,
+        "relatorios_fontes": res["relatorios_fontes"],
+        "itens": res["itens_recolhidos"][:max_itens]
+    }
