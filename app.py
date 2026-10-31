@@ -89,13 +89,11 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
     
-    html, body, [class*="css"], [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] span {
+    html, body, [class*="css"] {
         font-family: 'Plus Jakarta Sans', sans-serif !important;
-        color: #0F172A !important;
     }
     .stApp {
         background-color: #F8FAFC !important;
-        color: #0F172A !important;
     }
     
     /* Forçar títulos do corpo a ficarem sempre escuros e nítidos */
@@ -671,21 +669,21 @@ if "1. Painel Inicial" in menu_opcao:
     ult_estado = obter_config("ultimo_estado_sync") or "Por sincronizar"
     ic_est = "🟢" if ult_estado == "Sucesso" else ("🟡" if ult_estado == "Sucesso parcial" else "🔴")
 
-    # Header Executivo Estilo App de Futebol
+    # Header Executivo Estilo App de Futebol com estilos inline diretos (indestrutível contra overrides)
     st.markdown(f"""
-    <div class="pemsa-header-container">
+    <div style="background: #0F172A; border-radius: 18px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25); border: 1px solid #1E293B;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span class="pemsa-header-title">RADAR DE OBRAS</span>
-                    <span class="pemsa-header-badge">PORTUGAL</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 1.9rem; font-weight: 900; color: #FFFFFF !important; letter-spacing: -0.5px; text-shadow: 0 2px 4px rgba(0,0,0,0.4);">RADAR DE OBRAS</span>
+                    <span style="background: rgba(220, 38, 38, 0.35); color: #FFA4A4 !important; font-size: 0.72rem; font-weight: 800; padding: 3px 9px; border-radius: 9999px; border: 1px solid rgba(220, 38, 38, 0.6); letter-spacing: 0.5px;">PORTUGAL</span>
                 </div>
-                <div class="pemsa-header-sub">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>
+                <div style="font-size: 0.95rem; color: #CBD5E1 !important; font-weight: 500; margin-top: 4px;">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>
             </div>
             <div style="display: flex; align-items: center; gap: 10px;">
-                <div style="background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; padding: 6px 12px; border-radius: 12px; text-align: right;">
-                    <div style="font-size: 0.78rem; font-weight: 700; color: #F1F5F9 !important;">{ic_est} Sync: {ult_estado}</div>
-                    <div style="font-size: 0.7rem; color: #94A3B8 !important;">Consulta: {ult_sync_ts}</div>
+                <div style="background: rgba(30, 41, 59, 0.85); border: 1px solid #334155; padding: 8px 14px; border-radius: 12px; text-align: right;">
+                    <div style="font-size: 0.8rem; font-weight: 800; color: #F8FAFC !important;">{ic_est} Sync: {ult_estado}</div>
+                    <div style="font-size: 0.72rem; color: #94A3B8 !important;">Consulta: {ult_sync_ts}</div>
                 </div>
             </div>
         </div>
