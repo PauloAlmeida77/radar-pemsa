@@ -171,6 +171,78 @@ st.markdown("""
         transform: translateY(-2px);
     }
 
+    /* Sidebar Moderna e Limpa */
+    [data-testid="stSidebar"] {
+        background-color: #FFFFFF !important;
+        border-right: 1px solid #E2E8F0 !important;
+    }
+    
+    /* Moldura elegante para o Logo na Sidebar */
+    .sidebar-logo-box {
+        background: #FFFFFF;
+        border: 1px solid #F1F5F9;
+        border-radius: 16px;
+        padding: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.04);
+        margin-bottom: 14px;
+        text-align: center;
+    }
+    
+    /* Menu de Rádio em formato de Botões / Abas estilo App de Futebol */
+    [data-testid="stSidebar"] div[role="radiogroup"] > label {
+        background: #F8FAFC !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 12px !important;
+        padding: 10px 14px !important;
+        margin-bottom: 8px !important;
+        transition: all 0.2s ease-in-out !important;
+        cursor: pointer !important;
+        font-weight: 600 !important;
+        font-size: 0.88rem !important;
+        color: #334155 !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+        background: #F1F5F9 !important;
+        border-color: #CBD5E1 !important;
+        color: #0F172A !important;
+        transform: translateX(3px);
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label[data-checked="true"],
+    [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
+        background: #FEF2F2 !important;
+        border-color: #F87171 !important;
+        color: #DC2626 !important;
+        font-weight: 800 !important;
+        box-shadow: 0 2px 4px rgba(220, 38, 38, 0.08) !important;
+    }
+    /* Ocultar o círculo redondo tradicional do rádio para parecer menu nativo */
+    [data-testid="stSidebar"] div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] {
+        width: 100% !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label div:first-child:not([data-testid="stMarkdownContainer"]) {
+        display: none !important;
+    }
+    
+    /* Caixa de Resumo na Sidebar */
+    .sidebar-resumo-box {
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-top: 10px;
+    }
+    .sidebar-resumo-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 5px 0;
+        border-bottom: 1px dashed #E2E8F0;
+        font-size: 0.82rem;
+    }
+    .sidebar-resumo-item:last-child {
+        border-bottom: none;
+    }
+
     .badge-alta {
         background-color: #DCFCE7;
         color: #166534;
@@ -356,16 +428,21 @@ st.markdown("""
 # ----------------- BARRA LATERAL (NAVEGAÇÃO E FILTROS) -----------------
 with st.sidebar:
     logo_oficial = os.path.join(CURRENT_DIR, "pemsa_logo_full.png")
+    st.markdown('<div class="sidebar-logo-box">', unsafe_allow_html=True)
     if os.path.exists(logo_oficial):
         st.image(logo_oficial, use_container_width=True)
     else:
-        logo_path = os.path.join(os.path.dirname(__file__), "pemsa_logo.svg")
-        if os.path.exists(logo_path):
-            st.image(logo_path, width=170)
-        else:
-            st.markdown("## ⚡ **PÉMSA**")
-    st.markdown("<h3 style='margin-top: 5px; color: #CC2229; font-weight: 800;'>Radar de Obras</h3>", unsafe_allow_html=True)
-    st.caption("Inteligência Comercial de Obras — Portugal")
+        st.markdown("## ⚡ **PÉMSA**")
+    st.markdown("""
+        <div style="margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span style="font-weight: 800; font-size: 0.95rem; color: #0F172A;">RADAR DE OBRAS</span>
+            <span style="background: #FEF2F2; color: #DC2626; font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 9999px; border: 1px solid #FECACA;">PT</span>
+        </div>
+        <div style="font-size: 0.72rem; color: #64748B; margin-top: 2px;">Prospeção & Inteligência Comercial</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<div style='font-size:0.75rem; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;'>Navegação do Sistema</div>", unsafe_allow_html=True)
 
     menu_opcao = st.radio(
         "Navegação do Sistema:",
@@ -378,11 +455,12 @@ with st.sidebar:
             "📅 6. Plano Comercial & Tarefas",
             "📡 7. Motor de Recolha & Alertas"
         ],
-        index=0
+        index=0,
+        label_visibility="collapsed"
     )
 
-    st.markdown("---")
-    st.markdown("##### 🎯 **Filtro Global Rápido**")
+    st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.75rem; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;'>🎯 Filtros Rápidos</div>", unsafe_allow_html=True)
     filtro_regiao_global = st.selectbox("Região:", ["Todas", "Norte", "Centro", "Sul", "Madeira", "Açores"], index=0)
     incluir_demo_global = st.checkbox(
         "Mostrar registos de demonstração (DEMO)",
@@ -390,17 +468,33 @@ with st.sidebar:
         help="Desative para ver apenas as oportunidades reais recolhidas das fontes públicas."
     )
 
-    st.markdown("---")
     kpis = obter_estatisticas_kpi(incluir_demo=incluir_demo_global)
-    st.markdown("**Resumo em Tempo Real:**")
-    st.write(f"• Obras Visíveis: **{kpis['total_obras']}** (`{kpis['obras_reais']}` Reais | `{kpis['obras_demo']}` Demo)")
-    st.write(f"• Alta Prioridade: **{kpis['prioritarias']}**")
-    st.write(f"• Contactos Por Verificar: **{kpis['contactos_por_identificar']}**")
-    st.write(f"• Tarefas em Atraso: **{kpis['tarefas_atrasadas']}**")
+    st.markdown(f"""
+    <div class="sidebar-resumo-box">
+        <div style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; margin-bottom: 6px;">Resumo em Tempo Real</div>
+        <div class="sidebar-resumo-item">
+            <span style="color:#64748B;">Obras Visíveis</span>
+            <span style="font-weight:700; color:#0F172A;">{kpis['total_obras']} <span style="font-size:0.72rem; color:#059669;">({kpis['obras_reais']} Reais)</span></span>
+        </div>
+        <div class="sidebar-resumo-item">
+            <span style="color:#64748B;">Alta Prioridade</span>
+            <span style="font-weight:700; color:#0F172A;">{kpis['prioritarias']}</span>
+        </div>
+        <div class="sidebar-resumo-item">
+            <span style="color:#64748B;">Contactos p/ Verificar</span>
+            <span style="font-weight:700; color:#D97706;">{kpis['contactos_por_identificar']}</span>
+        </div>
+        <div class="sidebar-resumo-item">
+            <span style="color:#64748B;">Tarefas em Atraso</span>
+            <span style="font-weight:700; color:#DC2626;">{kpis['tarefas_atrasadas']}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     if kpis.get("obras_com_conflito", 0) > 0:
         st.warning(f"⚠️ Conflitos de Fontes: **{kpis['obras_com_conflito']}**")
 
-    st.markdown("---")
+    st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
     if st.button("🚪 Bloquear / Terminar Sessão", use_container_width=True):
         st.session_state["authenticated"] = False
         st.rerun()
