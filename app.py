@@ -98,34 +98,46 @@ st.markdown("""
         color: #0F172A !important;
     }
     
-    /* Forçar títulos a ficarem sempre escuros e nítidos */
-    h1, h2, h3, h4, h5, h6 {
+    /* Forçar títulos do corpo a ficarem sempre escuros e nítidos */
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
         color: #0F172A !important;
         font-weight: 800 !important;
     }
     
-    /* Header Principal Executivo */
+    /* Header Principal Executivo (Garante texto branco sobre fundo escuro) */
     .pemsa-header-container {
-        background: #0F172A;
-        border-radius: 18px;
-        padding: 18px 24px;
-        margin-bottom: 24px;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25);
-        border: 1px solid #1E293B;
-        color: white;
+        background: #0F172A !important;
+        border-radius: 18px !important;
+        padding: 18px 24px !important;
+        margin-bottom: 24px !important;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25) !important;
+        border: 1px solid #1E293B !important;
+        color: #FFFFFF !important;
     }
-    .main-header {
-        font-size: 1.85rem;
-        font-weight: 800;
-        color: #FFFFFF;
-        letter-spacing: -0.5px;
-        margin-bottom: 0.1rem;
+    .pemsa-header-container * {
+        color: inherit;
     }
-    .sub-header {
-        font-size: 0.95rem;
-        color: #94A3B8;
-        font-weight: 500;
-        margin-bottom: 0;
+    .pemsa-header-title {
+        font-size: 1.85rem !important;
+        font-weight: 800 !important;
+        color: #FFFFFF !important;
+        letter-spacing: -0.5px !important;
+        margin-bottom: 0.1rem !important;
+    }
+    .pemsa-header-badge {
+        background: rgba(220, 38, 38, 0.25) !important;
+        color: #F87171 !important;
+        font-size: 0.72rem !important;
+        font-weight: 700 !important;
+        padding: 3px 8px !important;
+        border-radius: 9999px !important;
+        border: 1px solid rgba(220, 38, 38, 0.4) !important;
+    }
+    .pemsa-header-sub {
+        font-size: 0.95rem !important;
+        color: #94A3B8 !important;
+        font-weight: 500 !important;
+        margin-bottom: 0 !important;
     }
     
     /* Cartões Modernos de Indicadores (KPIs estilo CRI) */
@@ -665,17 +677,15 @@ if "1. Painel Inicial" in menu_opcao:
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 1.85rem; font-weight: 800; color: #FFFFFF; letter-spacing: -0.5px;">RADAR DE OBRAS</span>
-                    <span style="background: rgba(220, 38, 38, 0.25); color: #F87171; font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 9999px; border: 1px solid rgba(220, 38, 38, 0.4);">
-                        PORTUGAL
-                    </span>
+                    <span class="pemsa-header-title">RADAR DE OBRAS</span>
+                    <span class="pemsa-header-badge">PORTUGAL</span>
                 </div>
-                <div class="sub-header">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>
+                <div class="pemsa-header-sub">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>
             </div>
             <div style="display: flex; align-items: center; gap: 10px;">
                 <div style="background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; padding: 6px 12px; border-radius: 12px; text-align: right;">
-                    <div style="font-size: 0.78rem; font-weight: 700; color: #F1F5F9;">{ic_est} Sync: {ult_estado}</div>
-                    <div style="font-size: 0.7rem; color: #94A3B8;">Consulta: {ult_sync_ts}</div>
+                    <div style="font-size: 0.78rem; font-weight: 700; color: #F1F5F9 !important;">{ic_est} Sync: {ult_estado}</div>
+                    <div style="font-size: 0.7rem; color: #94A3B8 !important;">Consulta: {ult_sync_ts}</div>
                 </div>
             </div>
         </div>
