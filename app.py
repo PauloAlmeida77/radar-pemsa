@@ -188,38 +188,60 @@ st.markdown("""
         text-align: center;
     }
     
-    /* Menu de Rádio em formato de Botões / Abas estilo App de Futebol */
-    [data-testid="stSidebar"] div[role="radiogroup"] > label {
-        background: #F8FAFC !important;
-        border: 1px solid #E2E8F0 !important;
-        border-radius: 12px !important;
-        padding: 10px 14px !important;
-        margin-bottom: 8px !important;
-        transition: all 0.2s ease-in-out !important;
-        cursor: pointer !important;
-        font-weight: 600 !important;
-        font-size: 0.88rem !important;
-        color: #334155 !important;
+    /* Menu de Navegação na Barra Lateral estilo App de Futebol */
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
     }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+    
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label {
+        display: flex !important;
+        align-items: center !important;
+        background: #F8FAFC !important;
+        border: 1.5px solid #E2E8F0 !important;
+        border-radius: 14px !important;
+        padding: 10px 14px !important;
+        margin: 0 !important;
+        cursor: pointer !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+    }
+    
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label:hover {
         background: #F1F5F9 !important;
         border-color: #CBD5E1 !important;
-        color: #0F172A !important;
-        transform: translateX(3px);
+        transform: translateX(4px) !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.06) !important;
     }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label[data-checked="true"],
-    [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
+    
+    /* Item Selecionado / Ativo */
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label:has(input:checked),
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label[data-checked="true"] {
         background: #FEF2F2 !important;
-        border-color: #F87171 !important;
+        border-color: #EF4444 !important;
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.12) !important;
+    }
+    
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label:has(input:checked) p,
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label[data-checked="true"] p {
         color: #DC2626 !important;
         font-weight: 800 !important;
-        box-shadow: 0 2px 4px rgba(220, 38, 38, 0.08) !important;
     }
-    /* Ocultar o círculo redondo tradicional do rádio para parecer menu nativo */
-    [data-testid="stSidebar"] div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] {
-        width: 100% !important;
+
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label p {
+        color: #334155 !important;
+        font-size: 0.88rem !important;
+        font-weight: 600 !important;
+        margin: 0 !important;
+        letter-spacing: -0.2px !important;
     }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label div:first-child:not([data-testid="stMarkdownContainer"]) {
+    
+    /* Esconder o círculo de rádio padrão em todas as versões do Streamlit */
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child:not([data-testid="stMarkdownContainer"]) {
+        display: none !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] input[type="radio"] {
         display: none !important;
     }
     
