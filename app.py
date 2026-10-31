@@ -84,79 +84,119 @@ if os.path.exists(icon_path):
 # Inicializar Base de Dados e Auditoria Não-Destrutiva (sem injetar dados de demonstração no arranque)
 init_db()
 
-# Estilos CSS personalizados
+# Estilos CSS personalizados inspirados na App de Gestão CRI (Tailwind / Slate / Plus Jakarta Sans)
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+    }
+    .stApp {
+        background-color: #F8FAFC !important;
+    }
+    
+    /* Header Principal Executivo */
+    .pemsa-header-container {
+        background: #0F172A;
+        border-radius: 18px;
+        padding: 18px 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25);
+        border: 1px solid #1E293B;
+        color: white;
+    }
     .main-header {
-        font-size: 2.2rem;
+        font-size: 1.85rem;
         font-weight: 800;
-        color: #0F172A;
-        margin-bottom: 0.2rem;
+        color: #FFFFFF;
+        letter-spacing: -0.5px;
+        margin-bottom: 0.1rem;
     }
     .sub-header {
-        font-size: 1.05rem;
-        color: #475569;
-        margin-bottom: 1.5rem;
+        font-size: 0.95rem;
+        color: #94A3B8;
+        font-weight: 500;
+        margin-bottom: 0;
     }
+    
+    /* Cartões Modernos de Indicadores (KPIs estilo CRI) */
     .kpi-card {
         background: #FFFFFF;
-        padding: 1.2rem;
-        border-radius: 10px;
-        border-left: 5px solid #2563EB;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-        text-align: center;
+        padding: 1.25rem 1.4rem;
+        border-radius: 18px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.03);
+        transition: all 0.2s ease-in-out;
+        text-align: left;
+    }
+    .kpi-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.06);
+        border-color: #CBD5E1;
     }
     .kpi-num {
-        font-size: 2.2rem;
+        font-size: 2.1rem;
         font-weight: 800;
-        color: #1E293B;
+        color: #0F172A;
+        line-height: 1.1;
     }
     .kpi-label {
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         text-transform: uppercase;
-        font-weight: 600;
+        font-weight: 700;
         color: #64748B;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.6px;
+        margin-bottom: 4px;
     }
+    .kpi-sub {
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-top: 6px;
+    }
+
+    /* Cartões de Obra Modernos */
+    .obra-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 18px;
+        padding: 22px;
+        margin-bottom: 18px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        transition: all 0.2s ease-in-out;
+    }
+    .obra-card:hover {
+        border-color: #CBD5E1;
+        box-shadow: 0 12px 20px -5px rgba(0,0,0,0.07);
+        transform: translateY(-2px);
+    }
+
     .badge-alta {
         background-color: #DCFCE7;
         color: #166534;
         padding: 4px 10px;
-        border-radius: 6px;
+        border-radius: 8px;
         font-weight: 700;
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         display: inline-block;
     }
     .badge-media {
         background-color: #FEF9C3;
         color: #854D0E;
         padding: 4px 10px;
-        border-radius: 6px;
+        border-radius: 8px;
         font-weight: 700;
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         display: inline-block;
     }
     .badge-baixa {
         background-color: #F1F5F9;
         color: #475569;
         padding: 4px 10px;
-        border-radius: 6px;
-        font-weight: 700;
-        font-size: 0.85rem;
-        display: inline-block;
-    }
-    .obra-card {
-        background: white;
-        border: 1px solid #E2E8F0;
         border-radius: 8px;
-        padding: 18px;
-        margin-bottom: 16px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-        transition: transform 0.15s ease-in-out;
-    }
-    .obra-card:hover {
-        border-color: #CBD5E1;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
+        font-weight: 700;
+        font-size: 0.82rem;
+        display: inline-block;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -248,37 +288,49 @@ def check_password():
     <style>
         [data-testid="stSidebar"] { display: none !important; }
         [data-testid="stSidebarNav"] { display: none !important; }
+        .stApp { background-color: #F8FAFC !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1, 1.8, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
         with st.container(border=True):
-            st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-            if os.path.exists(icon_path):
+            st.markdown("<div style='text-align: center; padding-top: 10px;'>", unsafe_allow_html=True)
+            logo_oficial = os.path.join(CURRENT_DIR, "pemsa_logo_full.png")
+            if os.path.exists(logo_oficial):
+                st.image(logo_oficial, use_container_width=True)
+            elif os.path.exists(icon_path):
                 st.image(icon_path, width=80)
-            st.markdown("<h2 style='color: #CC2229; margin-bottom: 2px;'>⚡ Radar PÉMSA</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='color: #64748B; font-size: 0.95rem; margin-bottom: 15px;'>Acesso Restrito — Prospeção Comercial</p>", unsafe_allow_html=True)
+            
+            st.markdown("<h3 style='color: #0F172A; font-weight: 800; margin-top: 15px; margin-bottom: 2px;'>⚡ Radar de Obras</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='color: #64748B; font-size: 0.95rem; margin-bottom: 20px;'>Inteligência Comercial & Qualificação Técnica de Obras</p>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-            pwd_input = st.text_input("PIN de Acesso:", type="password", placeholder="Introduza o PIN de 4 dígitos...")
+            with st.form("form_login_radar", clear_on_submit=False):
+                pwd_input = st.text_input(
+                    "PIN de Acesso:",
+                    type="password",
+                    placeholder="Introduza o PIN e prima Enter...",
+                    help="Prima a tecla Enter ou clique no botão para entrar."
+                )
+                btn_entrar = st.form_submit_button("🔓 Entrar no Radar", use_container_width=True, type="primary")
 
-            senha_correta = os.environ.get("PEMSA_PIN", "2003")
-            try:
-                if hasattr(st, "secrets") and "PASSWORD" in st.secrets:
-                    senha_correta = str(st.secrets["PASSWORD"])
-                elif hasattr(st, "secrets") and "PEMSA_PIN" in st.secrets:
-                    senha_correta = str(st.secrets["PEMSA_PIN"])
-            except Exception:
-                pass
+                if btn_entrar:
+                    senha_correta = os.environ.get("PEMSA_PIN", "2003")
+                    try:
+                        if hasattr(st, "secrets") and "PASSWORD" in st.secrets:
+                            senha_correta = str(st.secrets["PASSWORD"])
+                        elif hasattr(st, "secrets") and "PEMSA_PIN" in st.secrets:
+                            senha_correta = str(st.secrets["PEMSA_PIN"])
+                    except Exception:
+                        pass
 
-            if st.button("🔓 Entrar no Radar", use_container_width=True, type="primary"):
-                if str(pwd_input).strip() == senha_correta:
-                    st.session_state["authenticated"] = True
-                    st.rerun()
-                else:
-                    st.error("❌ PIN incorreto. Tente novamente.")
+                    if str(pwd_input).strip() == senha_correta:
+                        st.session_state["authenticated"] = True
+                        st.rerun()
+                    else:
+                        st.error("❌ PIN incorreto. Tente novamente.")
 
             st.markdown("<div style='text-align: center; margin-top: 15px;'>", unsafe_allow_html=True)
             st.caption("🔒 Área reservada e confidencial da equipa comercial PÉMSA.")
@@ -303,12 +355,16 @@ st.markdown("""
 
 # ----------------- BARRA LATERAL (NAVEGAÇÃO E FILTROS) -----------------
 with st.sidebar:
-    logo_path = os.path.join(os.path.dirname(__file__), "pemsa_logo.svg")
-    if os.path.exists(logo_path):
-        st.image(logo_path, width=170)
+    logo_oficial = os.path.join(CURRENT_DIR, "pemsa_logo_full.png")
+    if os.path.exists(logo_oficial):
+        st.image(logo_oficial, use_container_width=True)
     else:
-        st.markdown("## ⚡ **PÉMSA**")
-    st.markdown("<h3 style='margin-top: -10px; color: #CC2229;'>Radar de Obras</h3>", unsafe_allow_html=True)
+        logo_path = os.path.join(os.path.dirname(__file__), "pemsa_logo.svg")
+        if os.path.exists(logo_path):
+            st.image(logo_path, width=170)
+        else:
+            st.markdown("## ⚡ **PÉMSA**")
+    st.markdown("<h3 style='margin-top: 5px; color: #CC2229; font-weight: 800;'>Radar de Obras</h3>", unsafe_allow_html=True)
     st.caption("Inteligência Comercial de Obras — Portugal")
 
     menu_opcao = st.radio(
@@ -353,26 +409,41 @@ with st.sidebar:
 # 1. PAINEL INICIAL (DASHBOARD)
 # =====================================================================
 if "1. Painel Inicial" in menu_opcao:
-    col_tit1, col_tit2 = st.columns([3.3, 1.4])
-    with col_tit1:
-        st.markdown('<div class="main-header"><span style="color:#CC2229;">⚡ RADAR PÉMSA</span> — Obras em Portugal</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sub-header">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>', unsafe_allow_html=True)
-    with col_tit2:
-        ult_sync_ts = obter_config("ultima_sincronizacao_ts") or obter_config("ultima_sincronizacao") or "Nunca sincronizado"
-        ult_estado = obter_config("ultimo_estado_sync") or "Por sincronizar"
-        cor_bg = "#F0FDF4" if ult_estado == "Sucesso" else ("#FEFCE8" if ult_estado == "Sucesso parcial" else "#FEF2F2")
-        cor_txt = "#166534" if ult_estado == "Sucesso" else ("#854D0E" if ult_estado == "Sucesso parcial" else "#991B1B")
-        ic_est = "🟢" if ult_estado == "Sucesso" else ("🟡" if ult_estado == "Sucesso parcial" else "🔴")
-        st.markdown(f"""
-        <div style="background:{cor_bg}; border:1px solid #CBD5E1; border-radius:8px; padding:6px 10px; text-align:center; margin-bottom:6px;">
-            <span style="color:{cor_txt}; font-weight:700; font-size:0.78rem;">{ic_est} Estado Sync: {ult_estado}</span><br>
-            <span style="color:#334155; font-size:0.72rem;">Última consulta: {ult_sync_ts}</span>
+    ult_sync_ts = obter_config("ultima_sincronizacao_ts") or obter_config("ultima_sincronizacao") or "Nunca sincronizado"
+    ult_estado = obter_config("ultimo_estado_sync") or "Por sincronizar"
+    ic_est = "🟢" if ult_estado == "Sucesso" else ("🟡" if ult_estado == "Sucesso parcial" else "🔴")
+
+    # Header Executivo Estilo App de Futebol
+    st.markdown(f"""
+    <div class="pemsa-header-container">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.85rem; font-weight: 800; color: #FFFFFF; letter-spacing: -0.5px;">RADAR DE OBRAS</span>
+                    <span style="background: rgba(220, 38, 38, 0.25); color: #F87171; font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 9999px; border: 1px solid rgba(220, 38, 38, 0.4);">
+                        PORTUGAL
+                    </span>
+                </div>
+                <div class="sub-header">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; padding: 6px 12px; border-radius: 12px; text-align: right;">
+                    <div style="font-size: 0.78rem; font-weight: 700; color: #F1F5F9;">{ic_est} Sync: {ult_estado}</div>
+                    <div style="font-size: 0.7rem; color: #94A3B8;">Consulta: {ult_sync_ts}</div>
+                </div>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
-        if st.button("🔄 Atualizar Agora", use_container_width=True, key="btn_sync_dash"):
-            with st.spinner("A consultar fontes públicas em tempo real (RSS, Contratação Pública, Notícias Setoriais)..."):
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_btn_sync, col_vazio = st.columns([1.5, 4.5])
+    with col_btn_sync:
+        if st.button("🔄 Atualizar Agora", use_container_width=True, key="btn_sync_dash", type="primary"):
+            with st.spinner("A consultar fontes públicas em tempo real (RSS, Notícias Oficiais, Concursos)..."):
                 rel_sync = executar_sincronizacao_radar(forcar=True, modo="MANUAL")
                 st.session_state["ultimo_relatorio_ui"] = rel_sync
+                st.session_state["acabou_de_sincronizar"] = True
+                st.rerun()
                 st.session_state["acabou_de_sincronizar"] = True
 
     rel_exibir = st.session_state.get("ultimo_relatorio_ui") or obter_ultimo_relatorio_sincronizacao()
@@ -382,34 +453,38 @@ if "1. Painel Inicial" in menu_opcao:
 
     kpis = obter_estatisticas_kpi(incluir_demo=incluir_demo_global)
 
-    # Métricas em 4 colunas
+    # Métricas em 4 colunas com visual moderno estilo CRI Futebol
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown(f"""
-        <div class="kpi-card" style="border-left-color: #2563EB;">
-            <div class="kpi-num" style="color: #2563EB;">{kpis['total_obras']}</div>
-            <div class="kpi-label">Obras no Radar ({kpis['obras_reais']} Reais)</div>
+        <div class="kpi-card">
+            <div class="kpi-label">Obras no Radar</div>
+            <div class="kpi-num">{kpis['total_obras']}</div>
+            <div class="kpi-sub" style="color: #059669;">✔️ {kpis['obras_reais']} Verificadas Reais</div>
         </div>
         """, unsafe_allow_html=True)
     with col2:
         st.markdown(f"""
-        <div class="kpi-card" style="border-left-color: #16A34A;">
-            <div class="kpi-num" style="color: #16A34A;">{kpis['prioritarias']}</div>
-            <div class="kpi-label">Oportunidades Prioritárias</div>
+        <div class="kpi-card">
+            <div class="kpi-label">Oportunidades</div>
+            <div class="kpi-num">{kpis['prioritarias']}</div>
+            <div class="kpi-sub" style="color: #64748B;">Prioritárias (Score ≥ 75)</div>
         </div>
         """, unsafe_allow_html=True)
     with col3:
         st.markdown(f"""
-        <div class="kpi-card" style="border-left-color: #EAB308;">
-            <div class="kpi-num" style="color: #CA8A04;">{kpis['contactos_por_identificar']}</div>
-            <div class="kpi-label">Contactos Por Verificar</div>
+        <div class="kpi-card">
+            <div class="kpi-label">Contactos</div>
+            <div class="kpi-num">{kpis['contactos_por_identificar']}</div>
+            <div class="kpi-sub" style="color: #D97706;">⚠️ Por Verificar na Fonte</div>
         </div>
         """, unsafe_allow_html=True)
     with col4:
         st.markdown(f"""
-        <div class="kpi-card" style="border-left-color: #DC2626;">
-            <div class="kpi-num" style="color: #DC2626;">{kpis['tarefas_atrasadas']}</div>
-            <div class="kpi-label">Seguimentos em Atraso</div>
+        <div class="kpi-card">
+            <div class="kpi-label">Tarefas CRM</div>
+            <div class="kpi-num">{kpis['tarefas_atrasadas']}</div>
+            <div class="kpi-sub" style="color: #DC2626;">🚨 Seguimentos em Atraso</div>
         </div>
         """, unsafe_allow_html=True)
 
