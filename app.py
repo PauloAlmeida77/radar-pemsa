@@ -444,6 +444,52 @@ st.markdown("""
         display: flex !important;
         visibility: visible !important;
     }
+    
+    /* Transformar os rádios da barra lateral em botões de navegação limpos */
+    [data-testid="stSidebar"] div[role="radiogroup"] {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label {
+        background-color: #F8FAFC !important;
+        border: 1.5px solid #E2E8F0 !important;
+        border-radius: 12px !important;
+        padding: 10px 14px !important;
+        margin: 0 !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        transition: all 0.2s ease !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+        background-color: #F1F5F9 !important;
+        border-color: #CBD5E1 !important;
+        transform: translateX(3px) !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
+        background-color: #FEF2F2 !important;
+        border-color: #DC2626 !important;
+        box-shadow: 0 2px 6px rgba(220, 38, 38, 0.1) !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p {
+        color: #DC2626 !important;
+        font-weight: 800 !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label p {
+        color: #1E293B !important;
+        font-size: 0.9rem !important;
+        font-weight: 600 !important;
+        margin: 0 !important;
+    }
+    
+    /* Esconder o círculo nativo de rádio */
+    [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child:not([data-testid="stMarkdownContainer"]) {
+        display: none !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label input[type="radio"] {
+        display: none !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
