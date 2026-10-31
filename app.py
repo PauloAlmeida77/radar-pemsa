@@ -89,11 +89,19 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
     
-    html, body, [class*="css"] {
+    html, body, [class*="css"], [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] span {
         font-family: 'Plus Jakarta Sans', sans-serif !important;
+        color: #0F172A !important;
     }
     .stApp {
         background-color: #F8FAFC !important;
+        color: #0F172A !important;
+    }
+    
+    /* Forçar títulos a ficarem sempre escuros e nítidos */
+    h1, h2, h3, h4, h5, h6 {
+        color: #0F172A !important;
+        font-weight: 800 !important;
     }
     
     /* Header Principal Executivo */
