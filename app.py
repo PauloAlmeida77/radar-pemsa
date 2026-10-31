@@ -510,22 +510,30 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div style='font-size:0.75rem; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;'>Navegação do Sistema</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:0.75rem; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;'>Navegação do Sistema</div>", unsafe_allow_html=True)
 
-    menu_opcao = st.radio(
-        "Navegação do Sistema:",
-        [
-            "📊 1. Painel Inicial (Dashboard)",
-            "🔎 2. Pesquisa de Obras (Radar)",
-            "🗺️ 3. Mapa de Portugal",
-            "📋 4. Ficha da Obra & Dossiê",
-            "🏢 5. Empresas & Decisores",
-            "📅 6. Plano Comercial & Tarefas",
-            "📡 7. Motor de Recolha & Alertas"
-        ],
-        index=0,
-        label_visibility="collapsed"
-    )
+    if "menu_ativo" not in st.session_state:
+        st.session_state["menu_ativo"] = "📊 1. Painel Inicial (Dashboard)"
+
+    paginas_menu = [
+        ("📊 1. Painel Inicial", "📊 1. Painel Inicial (Dashboard)"),
+        ("🔎 2. Pesquisa de Obras", "🔎 2. Pesquisa de Obras (Radar)"),
+        ("🗺️ 3. Mapa de Portugal", "🗺️ 3. Mapa de Portugal"),
+        ("📋 4. Ficha da Obra", "📋 4. Ficha da Obra & Dossiê"),
+        ("🏢 5. Empresas & Decisores", "🏢 5. Empresas & Decisores"),
+        ("📅 6. Plano Comercial", "📅 6. Plano Comercial & Tarefas"),
+        ("📡 7. Motor de Recolha", "📡 7. Motor de Recolha & Alertas")
+    ]
+
+    for label_curto, valor_completo in paginas_menu:
+        ativo = (st.session_state["menu_ativo"] == valor_completo)
+        # Se for a página ativa, usa botão Vermelho Primário (como o 'Atualizar Agora'); senão, botão secundário elegante
+        tipo_btn = "primary" if ativo else "secondary"
+        if st.button(label_curto, key=f"btn_nav_{valor_completo}", use_container_width=True, type=tipo_btn):
+            st.session_state["menu_ativo"] = valor_completo
+            st.rerun()
+
+    menu_opcao = st.session_state["menu_ativo"]
 
     st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
     st.markdown("<div style='font-size:0.75rem; font-weight:800; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;'>🎯 Filtros Rápidos</div>", unsafe_allow_html=True)
