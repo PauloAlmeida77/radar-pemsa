@@ -171,7 +171,75 @@ st.markdown("""
         transform: translateY(-2px);
     }
 
-    /* Sidebar Moderna e Limpa */
+    /* ============================================================ */
+    /* OTIMIZAÇÕES MOBILE & RESPONSIVIDADE (SMARTPHONES E TABLETS) */
+    /* ============================================================ */
+    @media (max-width: 768px) {
+        /* Espaçamento geral do ecrã móvel */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
+            padding-left: 0.8rem !important;
+            padding-right: 0.8rem !important;
+        }
+
+        /* Header Executivo compacto no telemóvel */
+        .pemsa-header-container {
+            padding: 14px 16px !important;
+            border-radius: 14px !important;
+            margin-bottom: 16px !important;
+        }
+        .main-header {
+            font-size: 1.35rem !important;
+        }
+        .sub-header {
+            font-size: 0.82rem !important;
+        }
+
+        /* Garantir que as colunas de métricas / cartões quebram em 2 por linha no telemóvel */
+        [data-testid="column"] {
+            min-width: 46% !important;
+            margin-bottom: 8px !important;
+        }
+
+        /* Cartões de Indicadores mais compactos e legíveis */
+        .kpi-card {
+            padding: 1rem 0.8rem !important;
+            border-radius: 14px !important;
+        }
+        .kpi-num {
+            font-size: 1.65rem !important;
+        }
+        .kpi-label {
+            font-size: 0.72rem !important;
+        }
+        .kpi-sub {
+            font-size: 0.72rem !important;
+        }
+
+        /* Botão de menu lateral sempre visível no topo esquerdo do telemóvel */
+        [data-testid="collapsedControl"],
+        [data-testid="stSidebarCollapsedControl"] {
+            top: 0.5rem !important;
+            left: 0.5rem !important;
+            background: #0F172A !important;
+            color: #FFFFFF !important;
+            border-radius: 10px !important;
+            padding: 4px !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+        }
+        [data-testid="collapsedControl"] svg,
+        [data-testid="stSidebarCollapsedControl"] svg {
+            fill: #FFFFFF !important;
+        }
+        
+        /* Botões do menu lateral mais fáceis de tocar no ecrã tátil */
+        [data-testid="stSidebar"] button {
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
+            font-size: 0.92rem !important;
+        }
+    }
     [data-testid="stSidebar"] {
         background-color: #FFFFFF !important;
         border-right: 1px solid #E2E8F0 !important;
