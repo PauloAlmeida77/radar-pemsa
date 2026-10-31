@@ -531,50 +531,26 @@ st.markdown("""
         visibility: visible !important;
     }
     
-    /* Transformar os rádios da barra lateral em botões de navegação limpos */
-    [data-testid="stSidebar"] div[role="radiogroup"] {
-        display: flex !important;
-        flex-direction: column !important;
-        gap: 8px !important;
+    /* Regras de Contraste Absoluto para o Cabeçalho Escuro */
+    .pemsa-cabecalho-container, 
+    .pemsa-cabecalho-container * {
+        color: #FFFFFF !important;
     }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label {
-        background-color: #F8FAFC !important;
-        border: 1.5px solid #E2E8F0 !important;
-        border-radius: 12px !important;
-        padding: 10px 14px !important;
-        margin: 0 !important;
-        cursor: pointer !important;
-        display: flex !important;
-        align-items: center !important;
-        transition: all 0.2s ease !important;
+    .pemsa-cabecalho-titulo {
+        color: #FFFFFF !important;
+        font-size: 1.85rem !important;
+        font-weight: 900 !important;
+        letter-spacing: -0.5px !important;
     }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
-        background-color: #F1F5F9 !important;
-        border-color: #CBD5E1 !important;
-        transform: translateX(3px) !important;
+    .pemsa-cabecalho-badge {
+        color: #FF8A8A !important;
+        background-color: rgba(220, 38, 38, 0.35) !important;
+        border: 1px solid rgba(220, 38, 38, 0.6) !important;
     }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
-        background-color: #FEF2F2 !important;
-        border-color: #DC2626 !important;
-        box-shadow: 0 2px 6px rgba(220, 38, 38, 0.1) !important;
-    }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p {
-        color: #DC2626 !important;
-        font-weight: 800 !important;
-    }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label p {
-        color: #1E293B !important;
-        font-size: 0.9rem !important;
-        font-weight: 600 !important;
-        margin: 0 !important;
-    }
-    
-    /* Esconder o círculo nativo de rádio */
-    [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child:not([data-testid="stMarkdownContainer"]) {
-        display: none !important;
-    }
-    [data-testid="stSidebar"] div[role="radiogroup"] > label input[type="radio"] {
-        display: none !important;
+    .pemsa-cabecalho-sub {
+        color: #CBD5E1 !important;
+        font-size: 0.95rem !important;
+        font-weight: 500 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -669,20 +645,20 @@ if "1. Painel Inicial" in menu_opcao:
     ult_estado = obter_config("ultimo_estado_sync") or "Por sincronizar"
     ic_est = "🟢" if ult_estado == "Sucesso" else ("🟡" if ult_estado == "Sucesso parcial" else "🔴")
 
-    # Header Executivo Estilo App de Futebol com estilos inline diretos (indestrutível contra overrides)
+    # Header Executivo Estilo App de Futebol
     st.markdown(f"""
-    <div style="background: #0F172A; border-radius: 18px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25); border: 1px solid #1E293B;">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div class="pemsa-cabecalho-container" style="background: #0F172A; border-radius: 18px; padding: 22px 26px; margin-bottom: 24px; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25); border: 1px solid #1E293B;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
             <div>
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 1.9rem; font-weight: 900; color: #FFFFFF !important; letter-spacing: -0.5px; text-shadow: 0 2px 4px rgba(0,0,0,0.4);">RADAR DE OBRAS</span>
-                    <span style="background: rgba(220, 38, 38, 0.35); color: #FFA4A4 !important; font-size: 0.72rem; font-weight: 800; padding: 3px 9px; border-radius: 9999px; border: 1px solid rgba(220, 38, 38, 0.6); letter-spacing: 0.5px;">PORTUGAL</span>
+                    <span class="pemsa-cabecalho-titulo" style="font-size: 1.95rem; font-weight: 900; color: #FFFFFF !important; letter-spacing: -0.5px;">⚡ RADAR DE OBRAS</span>
+                    <span class="pemsa-cabecalho-badge" style="font-size: 0.72rem; font-weight: 800; padding: 3px 9px; border-radius: 9999px; letter-spacing: 0.5px;">PORTUGAL</span>
                 </div>
-                <div style="font-size: 0.95rem; color: #CBD5E1 !important; font-weight: 500; margin-top: 4px;">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>
+                <div class="pemsa-cabecalho-sub" style="font-size: 0.95rem; margin-top: 5px;">Inteligência Comercial, Qualificação Técnica e Decisores Verificáveis</div>
             </div>
             <div style="display: flex; align-items: center; gap: 10px;">
-                <div style="background: rgba(30, 41, 59, 0.85); border: 1px solid #334155; padding: 8px 14px; border-radius: 12px; text-align: right;">
-                    <div style="font-size: 0.8rem; font-weight: 800; color: #F8FAFC !important;">{ic_est} Sync: {ult_estado}</div>
+                <div style="background: rgba(30, 41, 59, 0.9); border: 1px solid #334155; padding: 8px 14px; border-radius: 12px; text-align: right;">
+                    <div style="font-size: 0.82rem; font-weight: 800; color: #F8FAFC !important;">{ic_est} Sync: {ult_estado}</div>
                     <div style="font-size: 0.72rem; color: #94A3B8 !important;">Consulta: {ult_sync_ts}</div>
                 </div>
             </div>
