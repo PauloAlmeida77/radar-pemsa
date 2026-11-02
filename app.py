@@ -602,8 +602,8 @@ with st.sidebar:
     filtro_regiao_global = st.selectbox("Região:", ["Todas", "Norte", "Centro", "Sul", "Madeira", "Açores"], index=0)
     incluir_demo_global = st.checkbox(
         "Mostrar registos de demonstração (DEMO)",
-        value=True,
-        help="Desative para ver apenas as oportunidades reais recolhidas das fontes públicas."
+        value=False,
+        help="Por defeito desativado. Ative apenas se quiser consultar as obras de exemplo iniciais."
     )
 
     kpis = obter_estatisticas_kpi(incluir_demo=incluir_demo_global)
